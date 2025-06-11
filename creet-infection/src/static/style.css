@@ -1,0 +1,67 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+}
+
+#game-container {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    border: 2px solid #333;
+    overflow: hidden;
+    background-color: #fff;
+}
+
+.creet {
+    position: absolute;
+    border-radius: 50%;
+    transition: background-color 0.5s, transform 0.5s;
+}
+
+.healthy {
+    background-color: green;
+}
+
+.sick {
+    background-color: red;
+}
+
+.berserk {
+    background-color: purple;
+    transform: scale(4);
+}
+
+.mean {
+    background-color: orange;
+    transform: scale(0.85);
+}
+
+.toxic-river {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 50px;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.hospital {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 50px;
+    background-color: rgba(0, 255, 0, 0.5);
+}
+
+.game-over {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 48px;
+    color: red;
+    display: none;
+}
