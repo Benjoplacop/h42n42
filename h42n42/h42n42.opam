@@ -1,0 +1,10 @@
+opam-version: "2.0"
+name: "h42n42"
+version: "0.1"
+synopsis: "h42n42"
+
+depends: [
+  "eliom" {>= "11.0.0" & < "12.0.0"}
+  "ocsipersist-pgsql-config" {>= "2.0" & < "3.0"}
+  "ocsigen-start" {>= "7.0.0" & < "8.0.0"}
+]

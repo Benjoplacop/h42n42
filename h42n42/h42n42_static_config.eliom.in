@@ -1,0 +1,31 @@
+(* Set static configuration in case you are using static linking only.
+   These information are taken from the config file otherwise.
+*)
+let%server set_static_config () =
+  if not (Ocsigen_config.has_configuration_file ())
+  then begin
+    Ocsigen_config.set_ports [`All, 8080];
+    Ocsigen_config.set_veryverbose ();
+    Ocsigen_config.set_debugmode true;
+    Ocsigen_config.set_logdir "local/var/log/h42n42";
+    Ocsigen_config.set_datadir "local/var/data/h42n42";
+    Ocsigen_config.set_uploaddir (Some "/tmp");
+    Ocsigen_config.set_usedefaulthostname true;
+    Ocsigen_config.set_command_pipe "local/var/run/h42n42-cmd";
+    Ocsigen_config.set_default_charset (Some "utf-8");
+    Ocsipersist_settings.set_host "%%PGHOST%%";
+    Ocsipersist_settings.set_port %%PGPORT%%;
+    Ocsipersist_settings.set_database "ocsipersist_h42n42";
+    Ocsipersist.init ();
+    H42n42_config.os_db_database := Some "%%PGDATABASE%%";
+    H42n42_config.os_db_host := Some "%%PGHOST%%";
+    H42n42_config.os_db_user :=
+      (let u = "%%PGUSER%%" in if u = "" then None else Some u);
+    H42n42_config.os_db_password := Some "%%PGPASSWORD%%";
+    H42n42_config.os_db_port := Some %%PGPORT%%;
+    H42n42_config.app_name := 
+      Filename.chop_suffix
+        (Unix.readlink "local/var/www/h42n42/h42n42.js") ".js" ;
+    H42n42_config.css_name :=
+      Unix.readlink "local/var/www/h42n42/css/h42n42.css";
+  end
