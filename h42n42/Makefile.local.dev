@@ -1,0 +1,16 @@
+# Makefile local pour le développement
+# Utilise la configuration locale au lieu de la configuration globale
+
+.PHONY: run.dev run.dev.byte run.dev.opt
+
+run.dev: run.dev.byte
+
+run.dev.byte:
+	@echo "==== Running ocsigenserver with LOCAL configuration file  ===="
+	@echo "==== The website is available at http://localhost:$(TEST_PORT) ===="
+	$(OCSIGENSERVER) $(RUN_DEBUG) -c local/etc/$(PROJECT_NAME)/$(PROJECT_NAME)-test.conf
+
+run.dev.opt:
+	@echo "==== Running ocsigenserver with LOCAL configuration file  ===="
+	@echo "==== The website is available at http://localhost:$(TEST_PORT) ===="
+	$(OCSIGENSERVER.OPT) $(RUN_DEBUG) -c local/etc/$(PROJECT_NAME)/$(PROJECT_NAME)-test.conf

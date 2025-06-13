@@ -5,13 +5,13 @@ let%server about_service =
   Eliom_service.create ~path:(Eliom_service.Path ["about"])
     ~meth:(Eliom_service.Get Eliom_parameter.unit) ()
 
+let%server creets_service =
+  Eliom_service.create ~path:(Eliom_service.Path ["creets"])
+    ~meth:(Eliom_service.Get Eliom_parameter.unit) ()
+
 let%server upload_user_avatar_service : (unit, unit) Ot_picture_uploader.service
   =
   Ot_picture_uploader.mk_service "upload_user_avatar_service" [%json: unit]
-
-let%server settings_service =
-  Eliom_service.create ~path:(Eliom_service.Path ["settings"])
-    ~meth:(Eliom_service.Get Eliom_parameter.unit) ()
 
 let%server os_github_service =
   Eliom_service.extern ~prefix:"http://github.com"
@@ -23,11 +23,7 @@ let%server ocsigen_service =
     ~meth:(Eliom_service.Get Eliom_parameter.unit) ()
 
 let%client about_service = ~%about_service
+let%client creets_service = ~%creets_service
 let%client upload_user_avatar_service = ~%upload_user_avatar_service
-let%client settings_service = ~%settings_service
 let%client ocsigen_service = ~%ocsigen_service
 let%client os_github_service = ~%os_github_service
-
-(* The OS lib needs access to the settings service to perform
-   redirections to it. We need to register it *)
-let%server () = Os_services.register_settings_service settings_service

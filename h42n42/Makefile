@@ -21,3 +21,6 @@ include Makefile.os
 
 # Mobile app makefile
 include Makefile.mobile
+
+# Include custom dev rules
+include Makefile.local.dev

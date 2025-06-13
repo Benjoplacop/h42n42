@@ -28,10 +28,6 @@ val set_personal_data_handler :
     {!Os_handlers.set_personal_data_handler} and gets the user information
     with {!Os_session.connected_fun}. *)
 
-val forgot_password_handler : unit -> string -> unit Lwt.t
-(** Reset forgotten password. It uses the default OS handler
-    {!Os_handlers.forgot_password_handler} with the main service. *)
-
 val action_link_handler :
    Os_types.User.id option
   -> string
@@ -70,14 +66,12 @@ val about_handler :
   -> Os_page.content Lwt.t
 (** About page *)
 
-val settings_handler :
+val creets_handler :
    Os_types.User.id option
   -> unit
   -> unit
   -> Os_page.content Lwt.t
-(** Settings page. If the user is connected (see
-    {!H42n42_container.get_user_data}), a settings
-    container will be created. *)
+(** Creets management page *)
 
 val update_language_handler :
    unit

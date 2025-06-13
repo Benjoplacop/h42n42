@@ -32,16 +32,6 @@ let%rpc set_personal_data_rpc (data : (string * string) * (string * string)) :
 
 let%client set_personal_data_handler () = set_personal_data_rpc
 
-(* Forgot password *)
-
-let%server forgot_password_handler =
-  Os_handlers.forgot_password_handler H42n42_services.settings_service
-
-let%rpc forgot_password_rpc (email : string) : unit Lwt.t =
-  forgot_password_handler () email
-
-let%client forgot_password_handler () = forgot_password_rpc
-
 (* Action links are links created to perform an action. They are used
    for example to send activation links by email, or links to reset a
    password. You can create your own action links and define their
@@ -136,20 +126,54 @@ let%rpc preregister_rpc (email : string) : unit Lwt.t =
 let%client preregister_handler () = preregister_rpc
 
 let%shared main_service_handler myid_o () () =
+  let open Eliom_content.Html.F in
   H42n42_container.page
     ~a:[a_class ["os-page-main"]]
     myid_o
-    [ p [%i18n welcome_text1]
-    ; p [%i18n welcome_text2]
-    ; ul [li [%i18n welcome_text3]; li [%i18n welcome_text4]]
-    ; p [%i18n welcome_text5]
-    ; ul
-        [ li [%i18n welcome_text6]
-        ; li [%i18n welcome_text7]
-        ; li [%i18n welcome_text8]
-        ; li [%i18n welcome_text9]
-        ; li [%i18n welcome_text10] ]
-    ; p [%i18n welcome_text11] ]
+    [ div ~a:[a_class ["hero-section"]]
+        [ h1 ~a:[a_class ["main-title"]] [txt "Bienvenue sur mon site web"]
+        ; p ~a:[a_class ["subtitle"]] 
+            [txt "Une application web moderne construite avec Ocsigen/Eliom"]
+        ]
+    ; div ~a:[a_class ["content-section"]]
+        [ h2 [txt "À propos de ce projet"]
+        ; p [txt "Cette application web a été développée en utilisant les technologies suivantes :"]
+        ; ul ~a:[a_class ["tech-list"]]
+            [ li [strong [txt "OCaml"]; txt " - Langage de programmation fonctionnel"]
+            ; li [strong [txt "Eliom"]; txt " - Framework web full-stack"]
+            ; li [strong [txt "Ocsigen"]; txt " - Serveur web moderne"]
+            ; li [strong [txt "HTML5/CSS3"]; txt " - Interface utilisateur responsive"]
+            ]
+        ]
+    ; div ~a:[a_class ["features-section"]]
+        [ h2 [txt "Fonctionnalités"]
+        ; div ~a:[a_class ["features-grid"]]
+            [ div ~a:[a_class ["feature-card"]]
+                [ h3 [txt "🚀 Performance"]
+                ; p [txt "Application rapide et optimisée grâce à OCaml"]
+                ]
+            ; div ~a:[a_class ["feature-card"]]
+                [ h3 [txt "🔒 Sécurité"]
+                ; p [txt "Type safety et sécurité garanties par OCaml"]
+                ]
+            ; div ~a:[a_class ["feature-card"]]
+                [ h3 [txt "📱 Responsive"]
+                ; p [txt "Interface adaptée à tous les appareils"]
+                ]
+            ]
+        ]
+    ; div ~a:[a_class ["cta-section"]]
+        [ p [txt "Prêt à découvrir plus ?"]
+        ; div ~a:[a_class ["cta-buttons"]]
+            [ a ~a:[a_class ["cta-button"]] 
+                ~service:H42n42_services.creets_service 
+                [txt "Essayer les Creets"] ()
+            ; a ~a:[a_class ["cta-button"; "cta-button-secondary"]] 
+                ~service:H42n42_services.about_service 
+                [txt "En savoir plus"] ()
+            ]
+        ]
+    ]
 
 let%shared about_handler myid_o () () =
   let open Eliom_content.Html.F in
@@ -161,13 +185,27 @@ let%shared about_handler myid_o () () =
         ; br ()
         ; p [%i18n about_handler_license] ] ]
 
-let%shared settings_handler myid_o () () =
-  let%lwt content =
-    match myid_o with
-    | Some _ -> H42n42_settings.settings_content ()
-    | None -> Lwt.return [p [%i18n log_in_to_see_page ~capitalize:true]]
-  in
-  H42n42_container.page myid_o content
+let%shared creets_handler myid_o () () =
+  let open Eliom_content.Html.F in
+  H42n42_container.page
+    ~a:[a_class ["os-page-creets"]]
+    myid_o
+    [ div ~a:[a_class ["page-header"]]
+        [ h1 [txt "Gestionnaire de Creets"]
+        ; p [txt "Créez et gérez vos threads Lwt (creets) en temps réel."]
+        ]
+    ; H42n42_creets.creets_interface ()
+    ; div ~a:[a_class ["info-section"]]
+        [ h3 [txt "À propos des Creets"]
+        ; p [txt "Les creets sont des threads légers basés sur Lwt qui permettent d'exécuter des tâches asynchrones. Vous pouvez créer de nouveaux creets et suivre leur progression en temps réel."]
+        ; ul
+            [ li [txt "🚀 Exécution asynchrone avec Lwt"]
+            ; li [txt "📊 Suivi en temps réel du statut"]
+            ; li [txt "⏱️ Mesure automatique du temps d'exécution"]
+            ; li [txt "🔄 Actualisation automatique toutes les 2 secondes"]
+            ]
+        ]
+    ]
 
 let%server update_language_handler () language =
   Os_session.connected_wrapper H42n42_language.update_language
