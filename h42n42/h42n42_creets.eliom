@@ -87,6 +87,18 @@ let%client find_creet_at_position pos creets =
     dist <= creet.size /. 2.0
   ) creets
 
+let%client is_in_hospital pos =
+  pos.y >= (game_height -. hospital_height)
+
+let%client heal_creet creet =
+  if creet.health <> Healthy then
+    { creet with 
+      health = Healthy; 
+      size = base_creet_size; (* Remettre à la taille normale *)
+      infection_time = None;
+    }
+  else creet
+
 let%client update_creet_position_with_mouse creet mouse_pos =
   { creet with 
     position = { 
@@ -155,10 +167,11 @@ let%client update_creet_position creet dt current_time =
     
     let (final_y, final_vy, new_health) = 
       if new_y <= river_height +. creet.size /. 2.0 then 
-        (* Collision avec la rivière - infection possible *)
-        let infected = if creet.health = Healthy && Random.float 1.0 < 0.3 then Infected else creet.health in
+        (* Collision avec la rivière - infection automatique pour les creets sains *)
+        let infected = if creet.health = Healthy then Infected else creet.health in
         (river_height +. creet.size /. 2.0, abs_float velocity.vy, infected)
       else if new_y >= game_height -. hospital_height -. creet.size /. 2.0 then 
+        (* Collision avec l'hôpital - PAS de guérison automatique *)
         (game_height -. hospital_height -. creet.size /. 2.0, -.abs_float velocity.vy, creet.health)
       else (new_y, velocity.vy, creet.health)
     in
@@ -289,6 +302,29 @@ let%client start_game_loop canvas ctx info_elem =
       
       (* Rendu *)
       ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
+      
+      (* Dessiner les zones spéciales *)
+      (* Zone de l'hôpital - fond vert clair *)
+      ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(76, 175, 80, 0.3)";
+      ctx##fillRect 0.0 (game_height -. hospital_height) game_width hospital_height;
+      
+      (* Texte de l'hôpital *)
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
+      ctx##.font := Js_of_ocaml.Js.string "16px Arial";
+      ctx##.textAlign := Js_of_ocaml.Js.string "center";
+      ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici") (game_width /. 2.0) (game_height -. hospital_height /. 2.0);
+      
+      (* Zone de la rivière toxique - fond bleu-vert *)
+      ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(255, 193, 7, 0.3)";
+      ctx##fillRect 0.0 0.0 game_width river_height;
+      
+      (* Texte de la rivière *)
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#FF8F00";
+      ctx##.font := Js_of_ocaml.Js.string "14px Arial";
+      ctx##.textAlign := Js_of_ocaml.Js.string "center";
+      ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER!") (game_width /. 2.0) (river_height /. 2.0);
+      
+      (* Dessiner les creets *)
       List.iter (fun creet ->
         let color = match creet.health with
           | Healthy -> if creet.is_grabbed then "#4CAF50" else "#000000" (* Vert si saisi *)
@@ -370,8 +406,10 @@ let%shared creets_interface () =
             ; li [txt "🔴 Creets rouge foncé = berserks (grossissent)"]
             ; li [txt "🟣 Creets violets = méchants (chassent les autres)"]
             ; li [txt "🏊 Rivière toxique en haut = danger !"]
-            ; li [txt "🏥 Hôpital en bas = soigne les malades"]
+            ; li [txt "🏥 Hôpital en bas = déposez-y les creets malades pour les soigner"]
             ; li [txt "🖱️ Cliquez et glissez pour déplacer les creets"]
+            ; li [txt "💡 Les creets saisis sont invulnérables"]
+            ; li [txt "⚠️ Seuls les creets déposés manuellement à l'hôpital sont soignés"]
             ]
         ]
     ; div ~a:[a_class ["game-controls"]]
@@ -450,19 +488,26 @@ let%client init_game_client () =
         Js_of_ocaml.Js._false
       );
       
-      canvas##.onmouseup := Js_of_ocaml.Dom_html.handler (fun _ ->
+      canvas##.onmouseup := Js_of_ocaml.Dom_html.handler (fun event ->
         (match !dragging_creet with
         | Some creet_id ->
+            let mouse_pos = get_mouse_pos canvas event in
             (* Libérer le creet et lui donner une nouvelle vitesse aléatoire *)
             let updated_creets = List.map (fun creet ->
               if creet.id = creet_id then
-                { creet with 
+                let released_creet = { creet with 
                   is_grabbed = false;
                   velocity = {
                     vx = random_float (-.base_speed) base_speed;
                     vy = random_float (-.base_speed) base_speed;
                   }
-                }
+                } in
+                (* Soigner le creet s'il est déposé dans l'hôpital *)
+                if is_in_hospital mouse_pos && released_creet.health <> Healthy then (
+                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
+                  heal_creet released_creet
+                ) else released_creet
               else creet
             ) !game_state.creets in
             game_state := { !game_state with creets = updated_creets };
@@ -479,13 +524,19 @@ let%client init_game_client () =
         | Some creet_id ->
             let updated_creets = List.map (fun creet ->
               if creet.id = creet_id then
-                { creet with 
+                let released_creet = { creet with 
                   is_grabbed = false;
                   velocity = {
                     vx = random_float (-.base_speed) base_speed;
                     vy = random_float (-.base_speed) base_speed;
                   }
-                }
+                } in
+                (* Soigner le creet s'il est dans l'hôpital *)
+                if is_in_hospital creet.position && released_creet.health <> Healthy then (
+                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
+                  heal_creet released_creet
+                ) else released_creet
               else creet
             ) !game_state.creets in
             game_state := { !game_state with creets = updated_creets };
