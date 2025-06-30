@@ -42,12 +42,12 @@ type game_state = {
 } [@@deriving json]
 
 (* Constantes du jeu - uniquement les valeurs, pas les calculs *)
-let game_width = 800.0
-let game_height = 600.0
-let river_height = 50.0
-let hospital_height = 50.0
-let base_creet_size = 40.0
-let base_speed = 50.0
+let game_width = 950.0
+let game_height = 800.0
+let river_height = 70.0
+let hospital_height = 70.0
+let base_creet_size = 35.0
+let base_speed = 35.0
 ]
 
 (* État du jeu côté client *)
@@ -337,20 +337,20 @@ let%client start_game_loop canvas ctx info_elem =
       ctx##fillRect 0.0 (game_height -. hospital_height) game_width hospital_height;
       
       (* Texte de l'hôpital *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
-      ctx##.font := Js_of_ocaml.Js.string "16px Arial";
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#FF8F00";
+      ctx##.font := Js_of_ocaml.Js.string "bold 16px Arial";
       ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici") (game_width /. 2.0) (game_height -. hospital_height /. 2.0);
+      ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici !!!") (game_width /. 2.0) (game_height -. hospital_height /. 2.0);
       
       (* Zone de la rivière toxique - fond bleu-vert *)
       ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(255, 193, 7, 0.3)";
       ctx##fillRect 0.0 0.0 game_width river_height;
       
       (* Texte de la rivière *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#FF8F00";
-      ctx##.font := Js_of_ocaml.Js.string "14px Arial";
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
+      ctx##.font := Js_of_ocaml.Js.string "bold 14px Arial";
       ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER!") (game_width /. 2.0) (river_height /. 2.0);
+      ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER !!!") (game_width /. 2.0) (river_height /. 2.0);
       
       (* Dessiner les creets *)
       List.iter (fun creet ->
@@ -429,7 +429,7 @@ let%shared creets_interface () =
     ; div ~a:[a_class ["game-instructions"]]
         [ h3 [txt "Comment jouer :"]
         ; ul 
-            [ li [txt "🟢 Creets noirs = sains"]
+            [ li [txt "⚫ Creets noirs = sains"]
             ; li [txt "🟠 Creets orange = infectés"]  
             ; li [txt "🔴 Creets rouge foncé = berserks (grossissent)"]
             ; li [txt "🟣 Creets violets = méchants (chassent les autres)"]
@@ -450,7 +450,7 @@ let%shared creets_interface () =
         a_class ["game-canvas"];
         a_width (int_of_float game_width);
         a_height (int_of_float game_height);
-        a_style "border: 3px solid #2c3e50; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 8%,rgb(255, 255, 255) 8%,rgb(255, 255, 255) 92%, #FFB6C1 92%, #FFB6C1 100%); cursor: pointer;"
+        a_style "border: 3px solid #2c3e50; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); background: linear-gradient(to bottom, #FF8F00 0%, #FF8F00 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, #2E7D32 90%, #2E7D32 100%); cursor: pointer;"
       ] []
     ]
 
