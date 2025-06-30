@@ -45,33 +45,33 @@ let game_width = 800.0
 let game_height = 600.0
 let river_height = 50.0
 let hospital_height = 50.0
-let base_creet_size = 30.0
+let base_creet_size = 40.0
 let base_speed = 50.0
 ]
 
-(* État du jeu côté serveur *)
-let%server game_state = ref {
+(* État du jeu côté client *)
+let%client game_state = ref {
   creets = [];
   game_running = false;
   start_time = 0.0;
   panic_level = 1.0;
 }
-let%server next_id = ref 1
+let%client next_id = ref 1
 
-(* Fonctions utilitaires côté serveur *)
-let%server random_float min_val max_val = 
+(* Fonctions utilitaires côté client *)
+let%client random_float min_val max_val = 
   min_val +. (Random.float (max_val -. min_val))
 
-let%server distance p1 p2 = 
+let%client distance p1 p2 = 
   sqrt ((p1.x -. p2.x) ** 2.0 +. (p1.y -. p2.y) ** 2.0)
 
-let%server normalize_velocity v speed =
+let%client normalize_velocity v speed =
   let length = sqrt (v.vx ** 2.0 +. v.vy ** 2.0) in
   if length = 0.0 then v
   else { vx = v.vx *. speed /. length; vy = v.vy *. speed /. length }
 
-(* Création d'un nouveau creet *)
-let%server create_creet current_time =
+(* Création d'un nouveau creet côté client *)
+let%client create_creet current_time =
   let id = !next_id in
   incr next_id;
   let new_creet = {
@@ -89,12 +89,14 @@ let%server create_creet current_time =
     is_grabbed = false;
     last_direction_change = current_time;
     infection_time = None;
-  } in 
-  Printf.printf "🎯 Creet créé: ID=%d pos=(%.1f,%.1f) size=%.1f\n%!" 
-    new_creet.id new_creet.position.x new_creet.position.y new_creet.size;
+  } in
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+    (Printf.sprintf "🎯 Creet créé: ID=%d pos=(%.1f,%.1f) size=%.1f" 
+      new_creet.id new_creet.position.x new_creet.position.y new_creet.size));
   new_creet
-(* Logique de mouvement et collision *)
-let%server update_creet_position creet dt current_time =
+
+(* Logique de mouvement et collision côté client *)
+let%client update_creet_position creet dt current_time =
   if creet.is_grabbed then creet
   else
     let speed_modifier = match creet.health with
@@ -143,8 +145,8 @@ let%server update_creet_position creet dt current_time =
       infection_time = if new_health = Infected && creet.health = Healthy then Some current_time else creet.infection_time;
     }
 
-(* Logique de contagion *)
-let%server check_infections creets current_time =
+(* Logique de contagion côté client *)
+let%client check_infections creets current_time =
   List.map (fun creet ->
     match creet.health with
     | Infected ->
@@ -168,8 +170,8 @@ let%server check_infections creets current_time =
     | _ -> creet
   ) creets
 
-(* Vérification des contacts entre creets *)
-let%server check_creet_contacts creets current_time =
+(* Vérification des contacts entre creets côté client *)
+let%client check_creet_contacts creets current_time =
   let rec check_contacts acc = function
     | [] -> acc
     | creet :: rest ->
@@ -190,7 +192,7 @@ let%server check_creet_contacts creets current_time =
   in
   List.rev (check_contacts [] creets)
 
-let%server count_healthy_creets creets =
+let%client count_healthy_creets creets =
   let rec count acc = function
     | [] -> acc
     | creet :: rest -> 
@@ -199,15 +201,15 @@ let%server count_healthy_creets creets =
   in
   count 0 creets
 
-(* Reproduction des creets *)
-let%server reproduce_creets creets current_time =
+(* Reproduction des creets côté client *)
+let%client reproduce_creets creets current_time =
   let healthy_count = List.length (List.filter (fun c -> c.health = Healthy) creets) in
   if healthy_count > 0 && Random.float 1.0 < 0.01 then (* 1% chance par frame *)
     (create_creet current_time) :: creets
   else creets
 
-(* Fonctions utilitaires pour éviter les fonctions anonymes *)
-let%server update_creets_positions creets dt current_time =
+(* Fonctions utilitaires pour éviter les fonctions anonymes côté client *)
+let%client update_creets_positions creets dt current_time =
   let rec update_list acc = function
     | [] -> List.rev acc
     | creet :: rest -> 
@@ -216,8 +218,8 @@ let%server update_creets_positions creets dt current_time =
   in
   update_list [] creets
 
-(* Mise à jour de l'état du jeu *)
-let%server update_game_state dt =
+(* Mise à jour de l'état du jeu côté client *)
+let%client update_game_state dt =
   if !game_state.game_running then
     let current_time = Unix.time () in
     let new_panic_level = 1.0 +. (current_time -. !game_state.start_time) *. 0.01 in
@@ -239,142 +241,79 @@ let%server update_game_state dt =
       panic_level = new_panic_level;
     }
 
-(* Fonctions utilitaires côté serveur *)
-let%server update_creet_for_move creet_id new_x new_y grabbed creet =
-  if creet.id = creet_id then
-    let final_y = 
-      if not grabbed && new_y >= game_height -. hospital_height && creet.health <> Healthy then
-        (* Guérison à l'hôpital *)
-        new_y
-      else new_y
-    in
-    let new_health = 
-      if not grabbed && final_y >= game_height -. hospital_height && creet.health <> Healthy then
-        Healthy
-      else creet.health
-    in
-    { creet with 
-      position = { x = new_x; y = final_y }; 
-      is_grabbed = grabbed;
-      health = new_health;
-      size = if new_health = Healthy then base_creet_size else creet.size;
-    }
-  else creet
-
-let%server update_creets_for_move creets creet_id new_x new_y grabbed =
-  let rec update_list acc = function
-    | [] -> List.rev acc
-    | creet :: rest -> 
-        let updated_creet = update_creet_for_move creet_id new_x new_y grabbed creet in
-        update_list (updated_creet :: acc) rest
+(* Boucle de jeu principale côté client *)
+let%client start_game_loop canvas ctx info_elem =
+  let rec loop last_time =
+    let%lwt () = Js_of_ocaml_lwt.Lwt_js.sleep 0.016 in (* ~60 FPS *)
+    let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
+    let dt = if last_time = 0.0 then 0.016 else current_time -. last_time in
+    
+    if !game_state.game_running then (
+      (* Mise à jour de l'état du jeu *)
+      update_game_state dt;
+      
+      (* Rendu *)
+      ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
+      List.iter (fun creet ->
+        let color = match creet.health with
+          | Healthy -> "#000000"
+          | Infected -> "#FFA500"
+          | Berserk -> "#8B0000"
+          | Evil -> "#800080"
+        in
+        let r = creet.size /. 2.0 in
+        ctx##.fillStyle := Js_of_ocaml.Js.string color;
+        ctx##beginPath ();
+        ctx##arc creet.position.x creet.position.y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+        ctx##fill
+      ) !game_state.creets;
+      
+      (* Mise à jour info *)
+      let healthy_count = count_healthy_creets !game_state.creets in
+      if healthy_count = 0 then (
+        info_elem##.innerHTML := Js_of_ocaml.Js.string "💀 GAME OVER";
+        game_state := { !game_state with game_running = false }
+      ) else (
+        info_elem##.innerHTML := Js_of_ocaml.Js.string 
+          (Printf.sprintf "🟢 Creets sains: %d | 🎯 Total: %d | ⚡ Panique: %.1fx" 
+            healthy_count (List.length !game_state.creets) !game_state.panic_level)
+      );
+      
+      loop current_time
+    ) else (
+      Lwt.return_unit
+    )
   in
-  update_list [] creets
+  loop 0.0
 
-let%server count_healthy_creets creets =
-  let rec count acc = function
-    | [] -> acc
-    | creet :: rest -> 
-        let new_acc = if creet.health = Healthy then acc + 1 else acc in
-        count new_acc rest
-  in
-  count 0 creets
-
-(* Services Eliom pour les actions du jeu - définis côté serveur *)
-let%server start_game_service =
+(* Démarrage du jeu côté client *)
+let%client start_game () =
+  Random.self_init ();
+  let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
+  let initial_creets = List.init 15 (fun _ -> create_creet current_time) in
+  game_state := {
+    creets = initial_creets;
+    game_running = true;
+    start_time = current_time;
+    panic_level = 1.0;
+  };
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+    (Printf.sprintf "🎮 Jeu démarré avec %d creets" (List.length initial_creets)))
+(* Services Eliom simplifiés - optionnels pour synchronisation *)
+let%server ping_service =
   Eliom_service.create
-    ~path:(Eliom_service.Path ["api"; "creets"; "start"])
-    ~meth:(Eliom_service.Post (Eliom_parameter.unit, Eliom_parameter.unit))
-    ()
-
-let%server get_game_state_service =
-  Eliom_service.create
-    ~path:(Eliom_service.Path ["api"; "creets"; "state"])
+    ~path:(Eliom_service.Path ["api"; "creets"; "ping"])
     ~meth:(Eliom_service.Get Eliom_parameter.unit)
     ()
 
-let%server move_creet_service =
-  Eliom_service.create
-    ~path:(Eliom_service.Path ["api"; "creets"; "move"])
-    ~meth:(Eliom_service.Post (Eliom_parameter.unit, 
-      Eliom_parameter.(int "id" ** float "x" ** float "y" ** bool "grabbed")))
-    ()
-
-let%server update_tick_service =
-  Eliom_service.create
-    ~path:(Eliom_service.Path ["api"; "creets"; "tick"])
-    ~meth:(Eliom_service.Post (Eliom_parameter.unit, Eliom_parameter.float "dt"))
-    ()
-
 (* Références côté client *)
-let%client start_game_service = ~%start_game_service
-let%client get_game_state_service = ~%get_game_state_service
-let%client move_creet_service = ~%move_creet_service
-let%client update_tick_service = ~%update_tick_service
+let%client ping_service = ~%ping_service
 
-(* Handlers pour les services *)
+(* Handlers simplifiés *)
 let%server () =
-  Eliom_registration.String.register ~service:start_game_service
+  Eliom_registration.String.register ~service:ping_service
     (fun () () ->
-      try%lwt
-        Random.self_init ();
-        let current_time = Unix.time () in
-        let initial_creets = List.init 8 (fun _ -> create_creet current_time) in
-        game_state := {
-          creets = initial_creets;
-          game_running = true;
-          start_time = current_time;
-          panic_level = 1.0;
-        };
-        Lwt.return ("text/plain", "OK")
-      with e ->
-        let error = Printexc.to_string e in
-        prerr_endline ("❌ start_game_service error: " ^ error);
-        Lwt.return ("text/plain", "Error starting game")
-    )
-
-
-let%server () =
-  Eliom_registration.String.register ~service:get_game_state_service
-    (fun () () ->
-      (* Format simple: count|running|panic_level puis pour chaque creet: id,x,y,health,grabbed,size *)
-      let creets_data = String.concat ";" (List.map (fun c -> 
-        Printf.sprintf "%d,%f,%f,%s,%b,%f"
-          c.id c.position.x c.position.y 
-          (match c.health with Healthy -> "healthy" | Infected -> "infected" | Berserk -> "berserk" | Evil -> "evil")
-          c.is_grabbed
-          c.size
-      ) !game_state.creets) in
-      let response = Printf.sprintf "%d|%b|%f|%s"
-        (List.length !game_state.creets)
-        !game_state.game_running
-        !game_state.panic_level
-        creets_data in
-      Lwt.return ("text/plain", response)
-    )
-
-let%server spawn_creet_loop () =
-  let rec loop () =
-    let%lwt () = Lwt_unix.sleep 0.1 in
-    let dt = 0.1 in
-    update_game_state dt;
-    loop ()
-  in
-  Lwt.async loop
-
-
-let%server () =
-  Eliom_registration.String.register ~service:move_creet_service
-    (fun () (creet_id, (new_x, (new_y, grabbed))) ->
-      let updated_creets = update_creets_for_move !game_state.creets creet_id new_x new_y grabbed in
-      game_state := { !game_state with creets = updated_creets };
-      Lwt.return ("text/plain", "OK")
-    )
-
-let%server () =
-  Eliom_registration.String.register ~service:update_tick_service
-    (fun () dt ->
-      update_game_state dt;
-      Lwt.return ("text/plain", "OK")
+      Lwt.return ("text/plain", "pong")
     )
 
 (* Interface utilisateur du jeu *)
@@ -407,7 +346,7 @@ let%shared creets_interface () =
       ] []
     ]
 
-(* Logique côté client - version simplifiée *)
+(* Logique côté client - version refactorisée *)
 let%client init_game_client () =
   Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🎮 Initialisation du jeu côté client");
   
@@ -424,20 +363,12 @@ let%client init_game_client () =
       let start_btn = Js_of_ocaml.Js.Unsafe.coerce start_btn_elem in
       let ctx = canvas##getContext (Js_of_ocaml.Dom_html._2d_) in
       
-      (* Test simple : dessiner un creet noir au centre *)
-      let draw_test_creet () =
-        let _ = ctx##.fillStyle := Js_of_ocaml.Js.string "#000000" in
-        let _ = ctx##beginPath in
-        let _ = ctx##arc 400.0 300.0 15.0 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false in
-        let _ = ctx##fill in
-        info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Test: Creet dessiné au centre"
-      in
-      
       (* Gestionnaire de clic sur le bouton *)
       start_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
-        Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🔥 Bouton cliqué!");
-        info_elem##.innerHTML := Js_of_ocaml.Js.string "🎮 Bouton cliqué - Test en cours...";
-        draw_test_creet ();
+        Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🚀 Bouton cliqué - Démarrage du jeu...");
+        start_game ();
+        info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Jeu démarré...";
+        Lwt.async (fun () -> start_game_loop canvas ctx info_elem);
         Js_of_ocaml.Js._false
       );
       
@@ -449,7 +380,8 @@ let%client init_game_client () =
 let%client () = 
   Js_of_ocaml.Dom_html.window##.onload := Js_of_ocaml.Dom_html.handler (fun _ ->
     let () = Js_of_ocaml_lwt.Lwt_js_events.async (fun () -> 
-      let%lwt () = Js_of_ocaml_lwt.Lwt_js.yield () in
+      (* Attendre un peu pour s'assurer que tous les éléments DOM sont créés *)
+      let%lwt () = Js_of_ocaml_lwt.Lwt_js.sleep 0.1 in
       init_game_client ();
       Lwt.return_unit
     ) in
