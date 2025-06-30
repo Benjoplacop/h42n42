@@ -31,6 +31,7 @@ type creet = {
   is_grabbed: bool;
   last_direction_change: float;
   infection_time: float option;
+  transformation_checked: bool; (* Pour s'assurer qu'on ne vérifie la transformation qu'une fois *)
 } [@@deriving json]
 
 type game_state = {
@@ -96,6 +97,7 @@ let%client heal_creet creet =
       health = Healthy; 
       size = base_creet_size; (* Remettre à la taille normale *)
       infection_time = None;
+      transformation_checked = false; (* Réinitialiser pour une éventuelle réinfection *)
     }
   else creet
 
@@ -127,6 +129,7 @@ let%client create_creet current_time =
     is_grabbed = false;
     last_direction_change = current_time;
     infection_time = None;
+    transformation_checked = false;
   } in
   Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
     (Printf.sprintf "🎯 Creet créé: ID=%d pos=(%.1f,%.1f) size=%.1f" 
@@ -144,9 +147,28 @@ let%client update_creet_position creet dt current_time =
       | Evil -> 1.3 (* plus rapide pour chasser *)
     in
     
-    (* Changement de direction aléatoire *)
+    (* Changement de direction aléatoire ou poursuite pour les Evil *)
     let velocity = 
-      if current_time -. creet.last_direction_change > 2.0 && Random.float 1.0 < 0.1 then
+      if creet.health = Evil then
+        (* Les creets Evil chassent les creets sains *)
+        let healthy_creets = List.filter (fun c -> c.health = Healthy && not c.is_grabbed) !game_state.creets in
+        match healthy_creets with
+        | [] -> creet.velocity (* Pas de cible, garde la direction actuelle *)
+        | targets ->
+            (* Trouve le creet sain le plus proche *)
+            let closest_target = List.fold_left (fun acc target ->
+              let dist_acc = distance creet.position acc.position in
+              let dist_target = distance creet.position target.position in
+              if dist_target < dist_acc then target else acc
+            ) (List.hd targets) (List.tl targets) in
+            (* Direction vers la cible *)
+            let dx = closest_target.position.x -. creet.position.x in
+            let dy = closest_target.position.y -. creet.position.y in
+            let norm = sqrt (dx *. dx +. dy *. dy) in
+            if norm > 0.0 then
+              { vx = dx /. norm *. base_speed; vy = dy /. norm *. base_speed }
+            else creet.velocity
+      else if current_time -. creet.last_direction_change > 2.0 && Random.float 1.0 < 0.1 then
         { vx = random_float (-.base_speed) base_speed;
           vy = random_float (-.base_speed) base_speed }
       else creet.velocity
@@ -182,6 +204,7 @@ let%client update_creet_position creet dt current_time =
       health = new_health;
       last_direction_change = if velocity <> creet.velocity then current_time else creet.last_direction_change;
       infection_time = if new_health = Infected && creet.health = Healthy then Some current_time else creet.infection_time;
+      transformation_checked = if new_health = Infected && creet.health = Healthy then false else creet.transformation_checked;
     }
 
 (* Logique de contagion côté client *)
@@ -194,13 +217,18 @@ let%client check_infections creets current_time =
           | None -> 0.0
         in
         
-        (* Évolution vers Berserk ou Evil *)
-        if infection_duration > 3.0 then
-          if Random.float 1.0 < 0.1 then
-            { creet with health = Berserk; size = creet.size *. 1.1 }
-          else if Random.float 1.0 < 0.1 then
-            { creet with health = Evil; size = creet.size *. 0.85 }
-          else creet
+        (* Vérifier la transformation vers Berserk ou Evil (une seule fois après 3 secondes) *)
+        if infection_duration > 3.0 && not creet.transformation_checked then
+          let random_val = Random.float 1.0 in
+          if random_val < 0.1 then
+            (* 10% de chance de devenir Berserk *)
+            { creet with health = Berserk; size = creet.size *. 1.1; transformation_checked = true }
+          else if random_val < 0.2 then
+            (* 10% de chance de devenir Evil (entre 0.1 et 0.2) *)
+            { creet with health = Evil; size = creet.size *. 0.85; transformation_checked = true }
+          else
+            (* 80% de chance de rester Infected *)
+            { creet with transformation_checked = true }
         else creet
     | Berserk ->
         (* Croissance progressive jusqu'à 4x la taille *)
@@ -222,7 +250,7 @@ let%client check_creet_contacts creets current_time =
                  not other_creet.is_grabbed && (* Les creets saisis ne contaminent pas *)
                  distance c.position other_creet.position < (c.size +. other_creet.size) /. 2.0 then
                 if Random.float 1.0 < 0.02 then (* 2% de chance *)
-                  { c with health = Infected; infection_time = Some current_time }
+                  { c with health = Infected; infection_time = Some current_time; transformation_checked = false }
                 else c
               else c
             ) creet rest

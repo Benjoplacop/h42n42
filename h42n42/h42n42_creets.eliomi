@@ -27,6 +27,7 @@ type creet = {
   is_grabbed: bool;
   last_direction_change: float;
   infection_time: float option;
+  transformation_checked: bool;
 }
 
 type game_state = {
