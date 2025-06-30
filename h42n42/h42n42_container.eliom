@@ -23,19 +23,6 @@ let%shared os_header ?user () =
            ()
        ; user_box ])
 
-let%shared os_footer () =
-  let open Eliom_content.Html.F in
-  footer
-    ~a:[a_class ["os-page-footer"]]
-    [ p
-        [ txt [%i18n S.footer_generated]
-        ; a ~service:H42n42_services.os_github_service
-            [txt " Ocsigen Start "]
-            ()
-        ; txt [%i18n S.footer_eliom_distillery]
-        ; a ~service:H42n42_services.ocsigen_service [txt " Ocsigen "] ()
-        ; txt [%i18n S.footer_technology] ] ]
-
 let%rpc get_wrong_pdata () :
     ((string * string) * (string * string)) option Lwt.t
   =
@@ -86,5 +73,4 @@ let%shared page ?html_a ?a ?title ?head myid_o content =
     (Os_page.content ?html_a ?a ?title ?head
        [ h
        ; Eliom_content.Html.F.(div ~a:[a_class ["os-body"]] content)
-       ; os_footer ()
        ; H42n42_drawer.make ?user:me () ])

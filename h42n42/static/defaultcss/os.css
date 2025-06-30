@@ -161,13 +161,13 @@ a.os-page-header-app-name {
 
 .os-page-main:not(.os-connected) .os-page-header {
   display: block;
-  height: 40vh; }
+  height: 10vh; }
   .os-page-main:not(.os-connected) .os-page-header .os-page-header-app-name {
     display: block;
     position: absolute;
     top: 30vh; }
 .os-page-main:not(.os-connected) .os-body {
-  margin-top: 40vh; }
+  margin-top: 10vh; }
 
 @media (max-width: 720px) {
   .os-page-footer {

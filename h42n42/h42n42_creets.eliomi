@@ -40,10 +40,5 @@ val game_width : float
 val game_height : float
 val river_height : float
 val hospital_height : float
+
 val creets_interface : unit -> [> Html_types.div] Eliom_content.Html.elt
-
-[%%server.start]
-
-val start_game : unit -> unit Lwt.t
-val get_game_state : unit -> game_state Lwt.t
-val move_creet : int -> float -> float -> bool -> unit Lwt.t

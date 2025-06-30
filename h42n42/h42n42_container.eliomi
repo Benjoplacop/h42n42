@@ -12,9 +12,6 @@ val os_header :
 (** [os_header ?user ()] defines the header for all pages. In this
     template, it's a userbox and the user name is displayed. *)
 
-val os_footer : unit -> [> `Footer] Eliom_content.Html.F.elt
-(** [os_footer ()] defines a footer for the page. *)
-
 val connected_welcome_box :
    unit
   -> [> Html_types.div] Eliom_content.Html.F.elt Lwt.t
