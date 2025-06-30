@@ -58,6 +58,10 @@ let%client game_state = ref {
 }
 let%client next_id = ref 1
 
+(* État pour le glisser-déposer *)
+let%client dragging_creet = ref None
+let%client mouse_offset = ref { x = 0.0; y = 0.0 }
+
 (* Fonctions utilitaires côté client *)
 let%client random_float min_val max_val = 
   min_val +. (Random.float (max_val -. min_val))
@@ -69,6 +73,28 @@ let%client normalize_velocity v speed =
   let length = sqrt (v.vx ** 2.0 +. v.vy ** 2.0) in
   if length = 0.0 then v
   else { vx = v.vx *. speed /. length; vy = v.vy *. speed /. length }
+
+(* Fonctions pour les interactions souris *)
+let%client get_mouse_pos canvas event =
+  let rect = canvas##getBoundingClientRect () in
+  let x = (Js_of_ocaml.Js.to_float event##.clientX) -. (Js_of_ocaml.Js.to_float rect##.left) in
+  let y = (Js_of_ocaml.Js.to_float event##.clientY) -. (Js_of_ocaml.Js.to_float rect##.top) in
+  { x; y }
+
+let%client find_creet_at_position pos creets =
+  List.find_opt (fun creet ->
+    let dist = distance pos creet.position in
+    dist <= creet.size /. 2.0
+  ) creets
+
+let%client update_creet_position_with_mouse creet mouse_pos =
+  { creet with 
+    position = { 
+      x = mouse_pos.x -. !mouse_offset.x; 
+      y = mouse_pos.y -. !mouse_offset.y 
+    };
+    velocity = { vx = 0.0; vy = 0.0 }; (* Arrêter le mouvement pendant le drag *)
+  }
 
 (* Création d'un nouveau creet côté client *)
 let%client create_creet current_time =
@@ -180,6 +206,7 @@ let%client check_creet_contacts creets current_time =
             List.fold_left (fun c other_creet ->
               if other_creet.id <> c.id && 
                  (other_creet.health = Infected || other_creet.health = Berserk || other_creet.health = Evil) &&
+                 not other_creet.is_grabbed && (* Les creets saisis ne contaminent pas *)
                  distance c.position other_creet.position < (c.size +. other_creet.size) /. 2.0 then
                 if Random.float 1.0 < 0.02 then (* 2% de chance *)
                   { c with health = Infected; infection_time = Some current_time }
@@ -217,6 +244,14 @@ let%client update_creets_positions creets dt current_time =
         update_list (updated_creet :: acc) rest
   in
   update_list [] creets
+
+(* Mise à jour des creets pendant le drag *)
+let%client update_dragged_creets creets mouse_pos =
+  List.map (fun creet ->
+    if creet.is_grabbed then
+      update_creet_position_with_mouse creet mouse_pos
+    else creet
+  ) creets
 
 (* Mise à jour de l'état du jeu côté client *)
 let%client update_game_state dt =
@@ -256,7 +291,7 @@ let%client start_game_loop canvas ctx info_elem =
       ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
       List.iter (fun creet ->
         let color = match creet.health with
-          | Healthy -> "#000000"
+          | Healthy -> if creet.is_grabbed then "#4CAF50" else "#000000" (* Vert si saisi *)
           | Infected -> "#FFA500"
           | Berserk -> "#8B0000"
           | Evil -> "#800080"
@@ -265,7 +300,14 @@ let%client start_game_loop canvas ctx info_elem =
         ctx##.fillStyle := Js_of_ocaml.Js.string color;
         ctx##beginPath ();
         ctx##arc creet.position.x creet.position.y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-        ctx##fill
+        ctx##fill;
+        
+        (* Ajouter un contour pour les creets saisis *)
+        if creet.is_grabbed then (
+          ctx##.strokeStyle := Js_of_ocaml.Js.string "#2E7D32";
+          ctx##.lineWidth := 3.0;
+          ctx##stroke
+        )
       ) !game_state.creets;
       
       (* Mise à jour info *)
@@ -369,6 +411,86 @@ let%client init_game_client () =
         start_game ();
         info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Jeu démarré...";
         Lwt.async (fun () -> start_game_loop canvas ctx info_elem);
+        Js_of_ocaml.Js._false
+      );
+      
+      (* Gestionnaires d'événements de souris pour le drag & drop *)
+      canvas##.onmousedown := Js_of_ocaml.Dom_html.handler (fun event ->
+        let mouse_pos = get_mouse_pos canvas event in
+        (match find_creet_at_position mouse_pos !game_state.creets with
+        | Some creet ->
+            dragging_creet := Some creet.id;
+            mouse_offset := { 
+              x = mouse_pos.x -. creet.position.x; 
+              y = mouse_pos.y -. creet.position.y 
+            };
+            (* Marquer le creet comme saisi *)
+            let updated_creets = List.map (fun c ->
+              if c.id = creet.id then { c with is_grabbed = true }
+              else c
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+              (Printf.sprintf "🖱️ Creet %d saisi" creet.id));
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      canvas##.onmousemove := Js_of_ocaml.Dom_html.handler (fun event ->
+        (match !dragging_creet with
+        | Some creet_id ->
+            let mouse_pos = get_mouse_pos canvas event in
+            let updated_creets = List.map (fun creet ->
+              if creet.id = creet_id then
+                update_creet_position_with_mouse creet mouse_pos
+              else creet
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      canvas##.onmouseup := Js_of_ocaml.Dom_html.handler (fun _ ->
+        (match !dragging_creet with
+        | Some creet_id ->
+            (* Libérer le creet et lui donner une nouvelle vitesse aléatoire *)
+            let updated_creets = List.map (fun creet ->
+              if creet.id = creet_id then
+                { creet with 
+                  is_grabbed = false;
+                  velocity = {
+                    vx = random_float (-.base_speed) base_speed;
+                    vy = random_float (-.base_speed) base_speed;
+                  }
+                }
+              else creet
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+              (Printf.sprintf "🖱️ Creet %d libéré" creet_id));
+            dragging_creet := None;
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      (* Gérer le cas où la souris sort du canvas *)
+      canvas##.onmouseleave := Js_of_ocaml.Dom_html.handler (fun _ ->
+        (match !dragging_creet with
+        | Some creet_id ->
+            let updated_creets = List.map (fun creet ->
+              if creet.id = creet_id then
+                { creet with 
+                  is_grabbed = false;
+                  velocity = {
+                    vx = random_float (-.base_speed) base_speed;
+                    vy = random_float (-.base_speed) base_speed;
+                  }
+                }
+              else creet
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+            dragging_creet := None;
+        | None -> ());
         Js_of_ocaml.Js._false
       );
       
