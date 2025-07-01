@@ -4,11 +4,9 @@
 
 
 let%shared () =
-  (* Registering main services only *)
+  (* Redirect main service to creets page *)
   H42n42_base.App.register ~service:Os_services.main_service
-    (H42n42_page.Opt.connected_page H42n42_handlers.main_service_handler);
-  H42n42_base.App.register ~service:H42n42_services.about_service
-    (H42n42_page.Opt.connected_page H42n42_handlers.about_handler);
+    (H42n42_page.Opt.connected_page H42n42_handlers.creets_handler);
   H42n42_base.App.register ~service:H42n42_services.creets_service
     (H42n42_page.Opt.connected_page H42n42_handlers.creets_handler)
 

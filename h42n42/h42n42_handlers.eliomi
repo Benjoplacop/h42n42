@@ -59,13 +59,6 @@ val main_service_handler :
   -> Os_page.content Lwt.t
 (** The first page of the application *)
 
-val about_handler :
-   Os_types.User.id option
-  -> unit
-  -> unit
-  -> Os_page.content Lwt.t
-(** About page *)
-
 val creets_handler :
    Os_types.User.id option
   -> unit

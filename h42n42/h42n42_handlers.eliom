@@ -168,22 +168,9 @@ let%shared main_service_handler myid_o () () =
             [ a ~a:[a_class ["cta-button"]] 
                 ~service:H42n42_services.creets_service 
                 [txt "Essayer les Creets"] ()
-            ; a ~a:[a_class ["cta-button"; "cta-button-secondary"]] 
-                ~service:H42n42_services.about_service 
-                [txt "En savoir plus"] ()
             ]
         ]
     ]
-
-let%shared about_handler myid_o () () =
-  let open Eliom_content.Html.F in
-  H42n42_container.page
-    ~a:[a_class ["os-page-about"]]
-    myid_o
-    [ div
-        [ p [%i18n about_handler_template]
-        ; br ()
-        ; p [%i18n about_handler_license] ] ]
 
 let%shared creets_handler myid_o () () =
   let open Eliom_content.Html.F in

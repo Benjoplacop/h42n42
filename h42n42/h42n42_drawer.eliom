@@ -10,9 +10,7 @@ let%shared item text service =
 
 let%shared make ?user:_ () =
   let items =
-    [ item [%i18n S.home ~capitalize:true] Os_services.main_service
-    ; item "Creets" H42n42_services.creets_service
-    ; item [%i18n S.about ~capitalize:true] H42n42_services.about_service ]
+    [ item "Creets" H42n42_services.creets_service ]
   in
   let menu = ul ~a:[a_class ["os-drawer-menu"]] items in
   let contents = [menu] in

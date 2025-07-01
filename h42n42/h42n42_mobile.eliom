@@ -49,7 +49,7 @@ let handle_initial_url () =
   app_started := true;
   match !initial_change_page with
   | None ->
-      Eliom_client.change_page ~replace:true ~service:Os_services.main_service
+      Eliom_client.change_page ~replace:true ~service:H42n42_services.creets_service
         () ()
   | Some action -> action ()
 
