@@ -392,7 +392,7 @@ let%client start_game_loop _canvas ctx info_elem =
       update_game_state dt;
       
       (* Rendu *)
-      ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
+      draw_map_background ctx;
       
       (* Dessiner les zones spéciales *)
       (* Zone de l'hôpital - fond vert clair *)
