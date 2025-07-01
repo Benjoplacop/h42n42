@@ -392,34 +392,30 @@ let%client start_game_loop _canvas ctx info_elem =
       update_game_state dt;
       
       (* Rendu *)
-      draw_map_background ctx;
+      ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
       
-<<<<<<< HEAD
       (* Dessiner les zones spéciales *)
       (* Zone de l'hôpital - fond vert clair *)
       ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(76, 175, 80, 0.3)";
       ctx##fillRect 0.0 (game_height -. hospital_height) game_width hospital_height;
       
       (* Texte de l'hôpital *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#FF8F00";
-      ctx##.font := Js_of_ocaml.Js.string "bold 16px Arial";
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
+      ctx##.font := Js_of_ocaml.Js.string "16px Arial";
       ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici !!!") (game_width /. 2.0) (game_height -. hospital_height /. 2.0);
+      ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici") (game_width /. 2.0) (game_height -. hospital_height /. 2.0);
       
       (* Zone de la rivière toxique - fond bleu-vert *)
       ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(255, 193, 7, 0.3)";
       ctx##fillRect 0.0 0.0 game_width river_height;
       
       (* Texte de la rivière *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
-      ctx##.font := Js_of_ocaml.Js.string "bold 14px Arial";
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#FF8F00";
+      ctx##.font := Js_of_ocaml.Js.string "14px Arial";
       ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER !!!") (game_width /. 2.0) (river_height /. 2.0);
+      ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER!") (game_width /. 2.0) (river_height /. 2.0);
       
       (* Dessiner les creets *)
-=======
-      (* Dessiner les creets avec des formes personnalisées *)
->>>>>>> d3b8556 (Single page sur les ccreets)
       List.iter (fun creet ->
         let size = creet.size in
         let x = creet.position.x in
@@ -603,11 +599,7 @@ let%shared creets_interface () =
             a_class ["game-canvas"];
             a_width (int_of_float game_width);
             a_height (int_of_float game_height);
-<<<<<<< HEAD
-            a_style "background: linear-gradient(to bottom,rgb(255, 193, 7) 0%, rgb(255, 193, 7) 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, rgb(76, 175, 80) 90% , rgb(76, 175, 80) 100%); cursor: pointer;"
-=======
-            a_style "cursor: pointer;"
->>>>>>> d3b8556 (Single page sur les ccreets)
+            a_style "background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 8%,rgb(255, 255, 255) 8%,rgb(255, 255, 255) 92%, #FFB6C1 92%, #FFB6C1 100%); cursor: pointer;"
           ] []
         ]
     ]
