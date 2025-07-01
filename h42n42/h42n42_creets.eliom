@@ -63,6 +63,10 @@ let%client next_id = ref 1
 let%client dragging_creet = ref None
 let%client mouse_offset = ref { x = 0.0; y = 0.0 }
 
+(* État pour l'herbe (généré une seule fois) *)
+let%client grass_pattern = ref [||]
+let%client grass_generated = ref false
+
 (* Fonctions utilitaires côté client *)
 let%client random_float min_val max_val = 
   min_val +. (Random.float (max_val -. min_val))
@@ -317,8 +321,67 @@ let%client update_game_state dt =
       panic_level = new_panic_level;
     }
 
+(* Fonction pour dessiner le fond de la carte *)
+let%client draw_map_background ctx =
+  (* Effacer le canvas *)
+  ctx##clearRect 0.0 0.0 game_width game_height;
+  
+  (* Dessiner le fond de pelouse avec des nuances de vert *)
+  let grass_base_color = "#4CAF50" in
+  ctx##.fillStyle := Js_of_ocaml.Js.string grass_base_color;
+  ctx##fillRect 0.0 0.0 game_width game_height;
+  
+  (* Générer l'herbe une seule fois si pas déjà fait *)
+  if not !grass_generated then (
+    let grass_colors = [|"#388E3C"; "#66BB6A"; "#43A047"; "#2E7D32"; "#81C784"|] in
+    let grass_data = Array.make 150 (0.0, 0.0, 0.0, 0.0, "") in
+    for i = 0 to 149 do
+      let random_val1 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
+      let random_val2 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
+      let random_val3 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
+      let random_val4 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
+      let random_val5 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
+      let x = random_val1 *. game_width in
+      let y = random_val2 *. game_height in
+      let width = 2.0 +. (random_val3 *. 4.0) in
+      let height = 8.0 +. (random_val4 *. 12.0) in
+      let color_index = int_of_float (random_val5 *. float_of_int (Array.length grass_colors)) in
+      let color = grass_colors.(color_index) in
+      grass_data.(i) <- (x, y, width, height, color);
+    done;
+    grass_pattern := grass_data;
+    grass_generated := true;
+  );
+  
+  (* Dessiner l'herbe avec les données précalculées *)
+  Array.iter (fun (x, y, width, height, color) ->
+    ctx##.fillStyle := Js_of_ocaml.Js.string color;
+    ctx##fillRect x y width height;
+  ) !grass_pattern;
+  
+  (* Dessiner les zones spéciales *)
+  (* Zone de l'hôpital - fond rosé opaque *)
+  ctx##.fillStyle := Js_of_ocaml.Js.string "#FFB6C1";
+  ctx##fillRect 0.0 (game_height -. hospital_height) game_width hospital_height;
+  
+  (* Texte de l'hôpital *)
+  ctx##.fillStyle := Js_of_ocaml.Js.string "#C2185B";
+  ctx##.font := Js_of_ocaml.Js.string "16px Arial";
+  ctx##.textAlign := Js_of_ocaml.Js.string "center";
+  ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici") (game_width /. 2.0) (game_height -. hospital_height /. 2.0);
+  
+  (* Zone de la rivière toxique - fond bleu opaque *)
+  ctx##.fillStyle := Js_of_ocaml.Js.string "#2196F3";
+  ctx##fillRect 0.0 0.0 game_width river_height;
+  
+  (* Texte de la rivière *)
+  ctx##.fillStyle := Js_of_ocaml.Js.string "#1565C0";
+  ctx##.font := Js_of_ocaml.Js.string "14px Arial";
+  ctx##.textAlign := Js_of_ocaml.Js.string "center";
+  ctx##fillText (Js_of_ocaml.Js.string "🌊 RIVIÈRE TOXIQUE - DANGER!") (game_width /. 2.0) (river_height /. 2.0)
+
 (* Boucle de jeu principale côté client *)
-let%client start_game_loop canvas ctx info_elem =
+let%client start_game_loop _canvas ctx info_elem =
   let rec loop last_time =
     let%lwt () = Js_of_ocaml_lwt.Lwt_js.sleep 0.016 in (* ~60 FPS *)
     let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
@@ -329,8 +392,9 @@ let%client start_game_loop canvas ctx info_elem =
       update_game_state dt;
       
       (* Rendu *)
-      ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
+      draw_map_background ctx;
       
+<<<<<<< HEAD
       (* Dessiner les zones spéciales *)
       (* Zone de l'hôpital - fond vert clair *)
       ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(76, 175, 80, 0.3)";
@@ -353,23 +417,127 @@ let%client start_game_loop canvas ctx info_elem =
       ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER !!!") (game_width /. 2.0) (river_height /. 2.0);
       
       (* Dessiner les creets *)
+=======
+      (* Dessiner les creets avec des formes personnalisées *)
+>>>>>>> d3b8556 (Single page sur les ccreets)
       List.iter (fun creet ->
-        let color = match creet.health with
-          | Healthy -> if creet.is_grabbed then "#4CAF50" else "#000000" (* Vert si saisi *)
-          | Infected -> "#FFA500"
-          | Berserk -> "#8B0000"
-          | Evil -> "#800080"
+        let size = creet.size in
+        let x = creet.position.x in
+        let y = creet.position.y in
+        let r = size /. 2.0 in
+        
+        (* Couleur de base selon le type *)
+        let base_color = match creet.health with
+          | Healthy -> "#4da6ff"   (* Bleu *)
+          | Infected -> "#ff8c00"  (* Orange *)
+          | Berserk -> "#cc0000"   (* Rouge foncé *)
+          | Evil -> "#8b00ff"      (* Violet *)
         in
-        let r = creet.size /. 2.0 in
-        ctx##.fillStyle := Js_of_ocaml.Js.string color;
+        
+        (* Dessiner le corps principal *)
+        ctx##.fillStyle := Js_of_ocaml.Js.string base_color;
+        ctx##.strokeStyle := Js_of_ocaml.Js.string "#333";
+        ctx##.lineWidth := 2.0;
         ctx##beginPath ();
-        ctx##arc creet.position.x creet.position.y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+        ctx##arc x y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
         ctx##fill;
+        ctx##stroke;
+        
+        (* Dessiner les yeux *)
+        ctx##.fillStyle := Js_of_ocaml.Js.string "#000";
+        let eye_size = r /. 10.0 in
+        let eye_offset_x = r /. 4.0 in
+        let eye_offset_y = r /. 8.0 in
+        
+        (* Œil gauche *)
+        ctx##beginPath ();
+        ctx##arc (x -. eye_offset_x) (y -. eye_offset_y) eye_size 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+        ctx##fill;
+        
+        (* Œil droit *)
+        ctx##beginPath ();
+        ctx##arc (x +. eye_offset_x) (y -. eye_offset_y) eye_size 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+        ctx##fill;
+        
+        (* Dessiner la bouche selon le type *)
+        ctx##.strokeStyle := Js_of_ocaml.Js.string "#000";
+        ctx##.lineWidth := 2.0;
+        ctx##.fillStyle := Js_of_ocaml.Js.string "transparent";
+        ctx##beginPath ();
+        
+        (match creet.health with
+        | Healthy -> 
+            (* Sourire *)
+            let mouth_y = y +. r /. 3.0 in
+            ctx##arc x mouth_y (r /. 3.0) 0.0 Js_of_ocaml.Js.math##._PI Js_of_ocaml.Js._false;
+            
+        | Infected -> 
+            (* Bouche triste *)
+            let mouth_y = y +. r /. 2.0 in
+            ctx##arc x mouth_y (r /. 3.0) Js_of_ocaml.Js.math##._PI (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+            
+        | Berserk -> 
+            (* Bouche en colère *)
+            let mouth_y = y +. r /. 2.0 in
+            ctx##arc x mouth_y (r /. 3.0) Js_of_ocaml.Js.math##._PI (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+            
+        | Evil -> 
+            (* Bouche malicieuse *)
+            let mouth_y = y +. r /. 2.0 in
+            ctx##arc x mouth_y (r /. 3.0) Js_of_ocaml.Js.math##._PI (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+        );
+        ctx##stroke;
+        
+        (* Ajouter des détails spécifiques selon le type *)
+        (match creet.health with
+        | Healthy -> () (* Rien de spécial *)
+        | Infected -> 
+            (* Taches d'infection *)
+            ctx##.fillStyle := Js_of_ocaml.Js.string "#ff0000";
+            ctx##beginPath ();
+            ctx##arc (x -. r /. 2.0) (y -. r /. 2.0) (r /. 15.0) 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+            ctx##fill;
+            ctx##beginPath ();
+            ctx##arc (x +. r /. 2.0) (y -. r /. 3.0) (r /. 15.0) 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+            ctx##fill;
+            
+        | Berserk -> 
+            (* Sourcils froncés *)
+            ctx##.strokeStyle := Js_of_ocaml.Js.string "#000";
+            ctx##.lineWidth := 2.0;
+            ctx##beginPath ();
+            ctx##moveTo (x -. r /. 2.0) (y -. r /. 2.0);
+            ctx##lineTo (x -. r /. 6.0) (y -. r /. 4.0);
+            ctx##lineTo (x -. r /. 2.0) (y -. r /. 8.0);
+            ctx##stroke;
+            ctx##beginPath ();
+            ctx##moveTo (x +. r /. 2.0) (y -. r /. 2.0);
+            ctx##lineTo (x +. r /. 6.0) (y -. r /. 4.0);
+            ctx##lineTo (x +. r /. 2.0) (y -. r /. 8.0);
+            ctx##stroke;
+            
+        | Evil -> 
+            (* Petites cornes *)
+            ctx##.strokeStyle := Js_of_ocaml.Js.string "#000";
+            ctx##.lineWidth := 2.0;
+            ctx##beginPath ();
+            ctx##moveTo (x -. r /. 6.0) (y -. r /. 3.0);
+            ctx##lineTo x (y -. r);
+            ctx##lineTo (x +. r /. 6.0) (y -. r /. 3.0);
+            ctx##stroke;
+            (* Point rouge au centre *)
+            ctx##.fillStyle := Js_of_ocaml.Js.string "#ff0000";
+            ctx##beginPath ();
+            ctx##arc x (y +. r /. 8.0) (r /. 20.0) 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
+            ctx##fill;
+        );
         
         (* Ajouter un contour pour les creets saisis *)
         if creet.is_grabbed then (
           ctx##.strokeStyle := Js_of_ocaml.Js.string "#2E7D32";
           ctx##.lineWidth := 3.0;
+          ctx##beginPath ();
+          ctx##arc x y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
           ctx##stroke
         )
       ) !game_state.creets;
@@ -425,42 +593,8 @@ let%server () =
 (* Interface utilisateur du jeu *)
 let%shared creets_interface () =
   div ~a:[a_class ["creets-game"]]
-    [ h2 [txt "Jeu des Creets"]
-    ; div ~a:[a_class ["game-instructions"]]
-        [ h3 [txt "Comment jouer :"]
-        ; div ~a:[a_class ["legend-container"]]
-            [ h4 [txt "Légende des Creets :"]
-            ; ul ~a:[a_class ["creet-legend"]]
-                [ li ~a:[a_class ["legend-item"]]
-                    [ span ~a:[a_class ["legend-color"; "legend-color-healthy"]] []
-                    ; txt "⚫ Creets noirs = sains (peuvent devenir verts quand saisis)"
-                    ]
-                ; li ~a:[a_class ["legend-item"]]
-                    [ span ~a:[a_class ["legend-color"; "legend-color-infected"]] []
-                    ; txt "🟠 Creets orange = infectés (propagent la maladie)"
-                    ]
-                ; li ~a:[a_class ["legend-item"]]
-                    [ span ~a:[a_class ["legend-color"; "legend-color-berserk"]] []
-                    ; txt "🔴 Creets rouge foncé = berserks (grossissent et deviennent dangereux)"
-                    ]
-                ; li ~a:[a_class ["legend-item"]]
-                    [ span ~a:[a_class ["legend-color"; "legend-color-evil"]] []
-                    ; txt "🟣 Creets violets = méchants (chassent et contaminent les autres)"
-                    ]
-                ]
-            ; h4 [txt "Règles du jeu :"]
-            ; ul ~a:[a_class ["game-rules"]]
-                [ li [txt "🏊 Rivière toxique en haut = danger mortel !"]
-                ; li [txt "🏥 Hôpital en bas = déposez-y les creets malades pour les soigner"]
-                ; li [txt "🖱️ Cliquez et glissez pour déplacer les creets"]
-                ; li [txt "💡 Les creets saisis sont invulnérables à la contamination"]
-                ; li [txt "⚠️ Seuls les creets déposés manuellement à l'hôpital sont soignés"]
-                ]
-            ]
-        ]
-    ; div ~a:[a_class ["game-controls"]]
+    [ div ~a:[a_class ["game-controls"]]
         [ button ~a:[a_id "start-button"; a_class ["btn"; "btn-primary"]] [txt "Démarrer le Jeu"]
-        ; p [txt "Sauvez les creets de la contamination ! Le jeu devient de plus en plus difficile..."]
         ]
     ; div ~a:[a_id "game-info"; a_class ["game-info"]] []
     ; div ~a:[a_class ["canvas-container"]]
@@ -469,7 +603,11 @@ let%shared creets_interface () =
             a_class ["game-canvas"];
             a_width (int_of_float game_width);
             a_height (int_of_float game_height);
+<<<<<<< HEAD
             a_style "background: linear-gradient(to bottom,rgb(255, 193, 7) 0%, rgb(255, 193, 7) 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, rgb(76, 175, 80) 90% , rgb(76, 175, 80) 100%); cursor: pointer;"
+=======
+            a_style "cursor: pointer;"
+>>>>>>> d3b8556 (Single page sur les ccreets)
           ] []
         ]
     ]
@@ -490,6 +628,9 @@ let%client init_game_client () =
       let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
       let start_btn = Js_of_ocaml.Js.Unsafe.coerce start_btn_elem in
       let ctx = canvas##getContext (Js_of_ocaml.Dom_html._2d_) in
+      
+      (* Dessiner le fond initial de la carte *)
+      draw_map_background ctx;
       
       (* Gestionnaire de clic sur le bouton *)
       start_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->

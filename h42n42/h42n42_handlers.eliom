@@ -4,7 +4,7 @@
 [%%shared open Eliom_content.Html.F]
 
 (* Upload user avatar *)
-let upload_user_avatar_handler myid () ((), (cropping, photo)) =
+let%server upload_user_avatar_handler myid () ((), (cropping, photo)) =
   let avatar_dir =
     List.fold_left Filename.concat
       (List.hd !H42n42_config.avatar_dir)
@@ -177,24 +177,7 @@ let%shared creets_handler myid_o () () =
   H42n42_container.page
     ~a:[a_class ["os-page-creets"]]
     myid_o
-    [ div ~a:[a_class ["page-header"]]
-        [ h1 [txt "Jeu des Creets - Version Complète"]
-        ; p [txt "Simulation de propagation avec vrais services Eliom."]
-        ]
-    ; H42n42_creets.creets_interface ()
-    ; div ~a:[a_class ["info-section"]]
-        [ h3 [txt "Instructions"]
-        ; ul [ li [txt "Cliquez sur 'Démarrer le Jeu' pour commencer"]
-             ; li [txt "Les creets noirs sont sains"]
-             ; li [txt "Glissez-déposez les creets pour les déplacer"]
-             ; li [txt "Emmenez les creets malades vers l'hôpital (zone rose)"]
-             ]
-        ; ul [ li [txt "🚀 Exécution asynchrone avec Lwt"]
-             ; li [txt "📊 Suivi en temps réel du statut"]
-             ; li [txt "⏱️ Mesure automatique du temps d'exécution"]
-             ; li [txt "🔄 Actualisation automatique toutes les 2 secondes"]
-             ]
-        ]
+    [ H42n42_creets.creets_interface ()
     ]
 
 let%server update_language_handler () language =
