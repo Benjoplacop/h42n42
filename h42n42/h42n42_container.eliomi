@@ -6,11 +6,10 @@
 (** This module defines the default template for application pages *)
 
 val os_header :
-   ?user:Os_types.User.t
-  -> unit
+   unit
   -> [> `Header] Eliom_content.Html.F.elt Lwt.t
-(** [os_header ?user ()] defines the header for all pages. In this
-    template, it's a userbox and the user name is displayed. *)
+(** [os_header ()] defines the header for all pages. In this
+    template, it displays the application name. *)
 
 val connected_welcome_box :
    unit

@@ -42,12 +42,12 @@ type game_state = {
 } [@@deriving json]
 
 (* Constantes du jeu - uniquement les valeurs, pas les calculs *)
-let game_width = 950.0
-let game_height = 800.0
-let river_height = 70.0
-let hospital_height = 70.0
-let base_creet_size = 35.0
-let base_speed = 35.0
+let game_width = 1000.0
+let game_height = 700.0
+let river_height = 50.0
+let hospital_height = 50.0
+let base_creet_size = 40.0
+let base_speed = 50.0
 ]
 
 (* État du jeu côté client *)
@@ -428,16 +428,34 @@ let%shared creets_interface () =
     [ h2 [txt "Jeu des Creets"]
     ; div ~a:[a_class ["game-instructions"]]
         [ h3 [txt "Comment jouer :"]
-        ; ul 
-            [ li [txt "⚫ Creets noirs = sains"]
-            ; li [txt "🟠 Creets orange = infectés"]  
-            ; li [txt "🔴 Creets rouge foncé = berserks (grossissent)"]
-            ; li [txt "🟣 Creets violets = méchants (chassent les autres)"]
-            ; li [txt "🏊 Rivière toxique en haut = danger !"]
-            ; li [txt "🏥 Hôpital en bas = déposez-y les creets malades pour les soigner"]
-            ; li [txt "🖱️ Cliquez et glissez pour déplacer les creets"]
-            ; li [txt "💡 Les creets saisis sont invulnérables"]
-            ; li [txt "⚠️ Seuls les creets déposés manuellement à l'hôpital sont soignés"]
+        ; div ~a:[a_class ["legend-container"]]
+            [ h4 [txt "Légende des Creets :"]
+            ; ul ~a:[a_class ["creet-legend"]]
+                [ li ~a:[a_class ["legend-item"]]
+                    [ span ~a:[a_class ["legend-color"; "legend-color-healthy"]] []
+                    ; txt "⚫ Creets noirs = sains (peuvent devenir verts quand saisis)"
+                    ]
+                ; li ~a:[a_class ["legend-item"]]
+                    [ span ~a:[a_class ["legend-color"; "legend-color-infected"]] []
+                    ; txt "🟠 Creets orange = infectés (propagent la maladie)"
+                    ]
+                ; li ~a:[a_class ["legend-item"]]
+                    [ span ~a:[a_class ["legend-color"; "legend-color-berserk"]] []
+                    ; txt "🔴 Creets rouge foncé = berserks (grossissent et deviennent dangereux)"
+                    ]
+                ; li ~a:[a_class ["legend-item"]]
+                    [ span ~a:[a_class ["legend-color"; "legend-color-evil"]] []
+                    ; txt "🟣 Creets violets = méchants (chassent et contaminent les autres)"
+                    ]
+                ]
+            ; h4 [txt "Règles du jeu :"]
+            ; ul ~a:[a_class ["game-rules"]]
+                [ li [txt "🏊 Rivière toxique en haut = danger mortel !"]
+                ; li [txt "🏥 Hôpital en bas = déposez-y les creets malades pour les soigner"]
+                ; li [txt "🖱️ Cliquez et glissez pour déplacer les creets"]
+                ; li [txt "💡 Les creets saisis sont invulnérables à la contamination"]
+                ; li [txt "⚠️ Seuls les creets déposés manuellement à l'hôpital sont soignés"]
+                ]
             ]
         ]
     ; div ~a:[a_class ["game-controls"]]
@@ -445,13 +463,15 @@ let%shared creets_interface () =
         ; p [txt "Sauvez les creets de la contamination ! Le jeu devient de plus en plus difficile..."]
         ]
     ; div ~a:[a_id "game-info"; a_class ["game-info"]] []
-    ; canvas ~a:[
-        a_id "game-canvas";
-        a_class ["game-canvas"];
-        a_width (int_of_float game_width);
-        a_height (int_of_float game_height);
-        a_style "border: 3px solid #2c3e50; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); background: linear-gradient(to bottom, #FF8F00 0%, #FF8F00 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, #2E7D32 90%, #2E7D32 100%); cursor: pointer;"
-      ] []
+    ; div ~a:[a_class ["canvas-container"]]
+        [ canvas ~a:[
+            a_id "game-canvas";
+            a_class ["game-canvas"];
+            a_width (int_of_float game_width);
+            a_height (int_of_float game_height);
+            a_style "background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 8%,rgb(255, 255, 255) 8%,rgb(255, 255, 255) 92%, #FFB6C1 92%, #FFB6C1 100%); cursor: pointer;"
+          ] []
+        ]
     ]
 
 (* Logique côté client - version refactorisée *)

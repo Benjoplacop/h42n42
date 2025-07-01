@@ -3,20 +3,6 @@
 
 [%%shared.start]
 
-val about_service :
-  ( unit
-    , unit
-    , Eliom_service.get
-    , Eliom_service.att
-    , Eliom_service.non_co
-    , Eliom_service.non_ext
-    , Eliom_service.reg
-    , [`WithoutSuffix]
-    , unit
-    , unit
-    , Eliom_service.non_ocaml )
-    Eliom_service.t
-
 val creets_service :
   ( unit
     , unit
