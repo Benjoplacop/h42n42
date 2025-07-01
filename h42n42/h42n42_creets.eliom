@@ -469,7 +469,7 @@ let%shared creets_interface () =
             a_class ["game-canvas"];
             a_width (int_of_float game_width);
             a_height (int_of_float game_height);
-            a_style "background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 8%,rgb(255, 255, 255) 8%,rgb(255, 255, 255) 92%, #FFB6C1 92%, #FFB6C1 100%); cursor: pointer;"
+            a_style "background: linear-gradient(to bottom,rgb(255, 193, 7) 0%, rgb(255, 193, 7) 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, rgb(76, 175, 80) 90% , rgb(76, 175, 80) 100%); cursor: pointer;"
           ] []
         ]
     ]
