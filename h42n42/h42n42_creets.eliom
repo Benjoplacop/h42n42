@@ -8,7 +8,7 @@ module Html = Eliom_content.Html.F
 let river_height = 50.0
 let hospital_height = 50.0
 
-let game_width = ref 1250.0
+let game_width = ref 950.0
 let game_height = ref 700.0
 let base_speed = ref 100.0
 let base_creet_size = ref 40.0
@@ -50,7 +50,7 @@ type game_state = {
 } [@@deriving json]
 
 (* Constantes du jeu - uniquement les valeurs, pas les calculs *)
-let game_width_default = 1250.0
+let game_width_default = 950.0
 let game_height_default = 700.0
 let river_height_default = 50.0
 let hospital_height_default = 50.0
@@ -102,7 +102,7 @@ let%shared creets_interface () =
         Html.a_class ["form-control"];
         Html.a_input_type `Range;
         Html.a_input_min (`Number 500);
-        Html.a_input_max (`Number 2000);
+        Html.a_input_max (`Number 1300);
         Html.a_value (string_of_float !game_width);
         Html.a_id "map-size"
       ] ();
@@ -175,15 +175,11 @@ let%client apply_game_settings () =
               (* Mettre à jour la taille du canvas *)
               canvas##.width := int_of_float map_width;
               canvas##.height := int_of_float map_height;
-          | None -> Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Canvas non trouvé"));
+          | None -> ());
 
-          (* Affichage des changements dans la console ou sur l'interface utilisateur *)
-          Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string (Printf.sprintf "Vitesse: %.2f, Taille: %.2f, Largeur: %.2f, Hauteur: %.2f"
-            speed size map_width map_height))
-      | _ -> 
-          Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Impossible de convertir les éléments en inputs"))
-  | _ -> 
-      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Éléments d'entrée non trouvés")
+          (* Paramètres appliqués *)
+      | _ -> ())
+  | _ -> ()
 
 (* Création d'un nouveau creet côté client *)
 let%client create_creet current_time =
@@ -206,9 +202,6 @@ let%client create_creet current_time =
     infection_time = None;
     transformation_checked = false;
   } in
-  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-    (Printf.sprintf "🎯 Creet créé: ID=%d pos=(%.1f,%.1f) size=%.1f" 
-      new_creet.id new_creet.position.x new_creet.position.y new_creet.size));
   new_creet
 
 (* Fonction pour démarrer le jeu *)
@@ -221,9 +214,7 @@ let%client start_game () =
     game_running = true;
     start_time = current_time;
     panic_level = 1.0;
-  };
-  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-    (Printf.sprintf "🎮 Jeu démarré avec %d creets" (List.length initial_creets)))
+  }
 
     (* État du jeu côté client *)
 (* État pour le glisser-déposer *)
@@ -503,20 +494,20 @@ let%client draw_map_background ctx =
   ctx##fillRect 0.0 (!game_height -. hospital_height) !game_width hospital_height;
   
   (* Texte de l'hôpital *)
-  ctx##.fillStyle := Js_of_ocaml.Js.string "#C2185B";
+  ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
   ctx##.font := Js_of_ocaml.Js.string "16px Arial";
   ctx##.textAlign := Js_of_ocaml.Js.string "center";
-  ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici") (!game_width /. 2.0) (!game_height -. hospital_height /. 2.0);
+  ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici !!!") (!game_width /. 2.0) (!game_height -. hospital_height /. 2.0);
   
   (* Zone de la rivière toxique - fond bleu opaque *)
   ctx##.fillStyle := Js_of_ocaml.Js.string "#2196F3";
   ctx##fillRect 0.0 0.0 !game_width river_height;
   
   (* Texte de la rivière *)
-  ctx##.fillStyle := Js_of_ocaml.Js.string "#1565C0";
+  ctx##.fillStyle := Js_of_ocaml.Js.string "#8b00ff";
   ctx##.font := Js_of_ocaml.Js.string "14px Arial";
   ctx##.textAlign := Js_of_ocaml.Js.string "center";
-  ctx##fillText (Js_of_ocaml.Js.string "🌊 RIVIÈRE TOXIQUE - DANGER!") (!game_width /. 2.0) (river_height /. 2.0)
+  ctx##fillText (Js_of_ocaml.Js.string "🌊 RIVIÈRE TOXIQUE - DANGER !!!") (!game_width /. 2.0) (river_height /. 2.0)
 
 (* Boucle de jeu principale côté client *)
 let%client start_game_loop _canvas ctx info_elem =
@@ -533,25 +524,44 @@ let%client start_game_loop _canvas ctx info_elem =
       draw_map_background ctx;
       
       (* Dessiner les zones spéciales *)
-      (* Zone de l'hôpital - fond vert clair *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(76, 175, 80, 0.3)";
+      (* Zone de l'hôpital - fond vert OPAQUE pour effacer l'ancien texte *)
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#C8E6C9";
       ctx##fillRect 0.0 (!game_height -. hospital_height) !game_width hospital_height;
       
-      (* Texte de l'hôpital *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
-      ctx##.font := Js_of_ocaml.Js.string "16px Arial";
-      ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici") (!game_width /. 2.0) (!game_height -. hospital_height /. 2.0);
+      (* Texte de l'hôpital - dynamique selon l'urgence *)
+      let infected_count = List.length (List.filter (fun c -> c.health <> Healthy) !game_state.creets) in
+      let hospital_text = 
+        if infected_count > 10 then
+          "🏥 HÔPITAL - URGENCE !!! Déposez les malades ici !!!"
+        else if infected_count > 5 then
+          "🏥 HÔPITAL - Déposez les creets malades ici !!!"
+        else
+          "🏥 HÔPITAL - Centre de soins"
+      in
       
-      (* Zone de la rivière toxique - fond bleu-vert *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "rgba(255, 193, 7, 0.3)";
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
+      ctx##.font := Js_of_ocaml.Js.string "bold 16px Arial";
+      ctx##.textAlign := Js_of_ocaml.Js.string "center";
+      ctx##fillText (Js_of_ocaml.Js.string hospital_text) (!game_width /. 2.0) (!game_height -. hospital_height /. 2.0);
+      
+      (* Zone de la rivière toxique - fond jaune OPAQUE pour effacer l'ancien texte *)
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#8b00ff";
       ctx##fillRect 0.0 0.0 !game_width river_height;
       
-      (* Texte de la rivière *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#FF8F00";
-      ctx##.font := Js_of_ocaml.Js.string "14px Arial";
+      (* Texte de la rivière - dynamique selon le niveau de panique *)
+      let river_text = 
+        if !game_state.panic_level > 1.5 then
+          "☠️ RIVIÈRE TOXIQUE - DANGER EXTRÊME !!!!"
+        else if !game_state.panic_level > 1.2 then
+          "☠️ RIVIÈRE TOXIQUE - DANGER !!!!!"
+        else
+          "☠️ RIVIÈRE TOXIQUE - DANGER !!!"
+      in
+      
+      ctx##.fillStyle := Js_of_ocaml.Js.string "#40E0D0";
+      ctx##.font := Js_of_ocaml.Js.string "bold 16px Arial";
       ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string "☠️ RIVIÈRE TOXIQUE - DANGER!") (!game_width /. 2.0) (river_height /. 2.0);
+      ctx##fillText (Js_of_ocaml.Js.string river_text) (!game_width /. 2.0) (river_height /. 2.0);
       
       (* Dessiner les creets *)
       List.iter (fun creet ->
@@ -683,7 +693,7 @@ let%client start_game_loop _canvas ctx info_elem =
         game_state := { !game_state with game_running = false }
       ) else (
         info_elem##.innerHTML := Js_of_ocaml.Js.string 
-          (Printf.sprintf "🟢 Creets sains: %d | 🎯 Total: %d | ⚡ Panique: %.1fx" 
+          (Printf.sprintf "🔵 Creets sains: %d | 🎯 Total: %d | ⚡ Panique: %.1fx" 
             healthy_count (List.length !game_state.creets) !game_state.panic_level)
       );
       
@@ -704,9 +714,7 @@ let%client start_game () =
     game_running = true;
     start_time = current_time;
     panic_level = 1.0;
-  };
-  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-    (Printf.sprintf "🎮 Jeu démarré avec %d creets" (List.length initial_creets)))
+  }
 (* Services Eliom simplifiés - optionnels pour synchronisation *)
 let%server ping_service =
   Eliom_service.create
@@ -726,7 +734,6 @@ let%server () =
 
 (* Logique côté client - version refactorisée *)
 let%client init_game_client () =
-  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🎮 Initialisation du jeu côté client");
   
   (* Récupérer les éléments DOM *)
   let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
@@ -749,7 +756,6 @@ let%client init_game_client () =
       
       (* Gestionnaire de clic sur le bouton *)
       start_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
-        Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🚀 Bouton cliqué - Démarrage du jeu...");
         start_game ();
         info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Jeu démarré...";
         Lwt.async (fun () -> start_game_loop canvas ctx info_elem);
@@ -758,7 +764,6 @@ let%client init_game_client () =
       
       (* Gestionnaire de clic sur le bouton Appliquer *)
       apply_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
-        Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "⚙️ Bouton Appliquer cliqué - Application des paramètres...");
         apply_game_settings ();
         (* Mettre à jour la taille du canvas si nécessaire *)
         canvas##.width := int_of_float !game_width;
@@ -785,8 +790,6 @@ let%client init_game_client () =
               else c
             ) !game_state.creets in
             game_state := { !game_state with creets = updated_creets };
-            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-              (Printf.sprintf "🖱️ Creet %d saisi" creet.id));
         | None -> ());
         Js_of_ocaml.Js._false
       );
@@ -820,16 +823,12 @@ let%client init_game_client () =
                   }
                 } in
                 (* Soigner le creet s'il est déposé dans l'hôpital *)
-                if is_in_hospital mouse_pos && released_creet.health <> Healthy then (
-                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
+                if is_in_hospital mouse_pos && released_creet.health <> Healthy then
                   heal_creet released_creet
-                ) else released_creet
+                else released_creet
               else creet
             ) !game_state.creets in
             game_state := { !game_state with creets = updated_creets };
-            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-              (Printf.sprintf "🖱️ Creet %d libéré" creet_id));
             dragging_creet := None;
         | None -> ());
         Js_of_ocaml.Js._false
@@ -849,11 +848,9 @@ let%client init_game_client () =
                   }
                 } in
                 (* Soigner le creet s'il est dans l'hôpital *)
-                if is_in_hospital creet.position && released_creet.health <> Healthy then (
-                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
+                if is_in_hospital creet.position && released_creet.health <> Healthy then
                   heal_creet released_creet
-                ) else released_creet
+                else released_creet
               else creet
             ) !game_state.creets in
             game_state := { !game_state with creets = updated_creets };
@@ -862,9 +859,9 @@ let%client init_game_client () =
         Js_of_ocaml.Js._false
       );
       
-      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "✅ Jeu initialisé avec succès")
+      () (* Jeu initialisé avec succès *)
   | _ ->
-      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Éléments DOM non trouvés")
+      () (* Éléments DOM non trouvés *)
 
 (* Initialiser le jeu quand la page est chargée *)
 let%client () = 
