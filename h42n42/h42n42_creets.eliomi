@@ -37,8 +37,8 @@ type game_state = {
   panic_level: float;
 }
 
-val game_width : float
-val game_height : float
+val game_width : float ref
+val game_height : float ref
 val river_height : float
 val hospital_height : float
 
