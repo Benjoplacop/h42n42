@@ -450,6 +450,25 @@ let%client update_game_state dt =
       panic_level = new_panic_level;
     }
 
+(* Fonction de calcul de score basée sur les performances *)
+let%client calculate_final_score creets game_duration panic_level =
+  let total_creets = List.length creets in
+  let healthy_count = List.length (List.filter (fun c -> c.health = Healthy) creets) in
+  let infected_count = List.length (List.filter (fun c -> c.health = Infected) creets) in
+  let berserk_count = List.length (List.filter (fun c -> c.health = Berserk) creets) in
+  let evil_count = List.length (List.filter (fun c -> c.health = Evil) creets) in
+  
+  (* Calcul du score basé sur différents facteurs *)
+  let base_score = total_creets * 100 in (* 100 points par creet total *)
+  let healthy_bonus = healthy_count * 200 in (* 200 points bonus par creet sain *)
+  let survival_bonus = int_of_float (game_duration *. 10.0) in (* 10 points par seconde de survie *)
+  let panic_penalty = int_of_float (panic_level *. 50.0) in (* Pénalité selon le niveau de panique *)
+  let infection_penalty = (infected_count + berserk_count + evil_count) * 50 in (* Pénalité par creet malade *)
+  
+  let final_score = max 0 (base_score + healthy_bonus + survival_bonus - panic_penalty - infection_penalty) in
+  
+  (final_score, total_creets, healthy_count, infected_count, berserk_count, evil_count)
+
 (* Fonction pour dessiner le fond de la carte *)
 let%client draw_map_background ctx =
   (* Effacer le canvas *)
@@ -689,7 +708,23 @@ let%client start_game_loop _canvas ctx info_elem =
       (* Mise à jour info *)
       let healthy_count = count_healthy_creets !game_state.creets in
       if healthy_count = 0 then (
-        info_elem##.innerHTML := Js_of_ocaml.Js.string "💀 GAME OVER";
+        (* Calculer le score final et les statistiques *)
+        let total_creets = List.length !game_state.creets in
+        let infected_count = List.length (List.filter (fun c -> c.health = Infected) !game_state.creets) in
+        let berserk_count = List.length (List.filter (fun c -> c.health = Berserk) !game_state.creets) in
+        let evil_count = List.length (List.filter (fun c -> c.health = Evil) !game_state.creets) in
+        let game_duration = Unix.time () -. !game_state.start_time in
+        
+        let score_message = Printf.sprintf 
+          "💀 GAME OVER 💀<br/>🎯 Total creets: %d<br/>🔴 Infectés: %d | 😡 Berserk: %d | 👹 Evil: %d<br/>⏱️ Durée: %.1f secondes | ⚡ Panique finale: %.1fx"
+          total_creets infected_count berserk_count evil_count game_duration !game_state.panic_level
+        in
+        
+        (* Calculer le score final basé sur les performances *)
+        let (final_score, _, _, _, _, _) = calculate_final_score !game_state.creets game_duration !game_state.panic_level in
+        let final_score_message = Printf.sprintf "<br/>🏆 SCORE FINAL: %d points" final_score in
+        
+        info_elem##.innerHTML := Js_of_ocaml.Js.string (score_message ^ final_score_message);
         game_state := { !game_state with game_running = false }
       ) else (
         info_elem##.innerHTML := Js_of_ocaml.Js.string 
