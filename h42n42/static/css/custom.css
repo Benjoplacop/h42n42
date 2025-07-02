@@ -347,6 +347,11 @@
   background: #f8f9fa;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
 }
 
 .game-controls {
@@ -360,45 +365,57 @@
   color: #666;
 }
 
+.game-controls button {
+  font-size: 1.2rem;
+  padding: 1rem 2rem;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.game-controls button:hover {
+  background: #218838;
+}
+
+.canvas-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto;
+  border: 3px solid #2d5a27;
+  border-radius: 15px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  background: #228b22;
+  padding: 5px;
+}
+
 .game-canvas {
+  border-radius: 10px;
   display: block;
   margin: 1rem auto;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  max-width: 100%;
-  height: auto;
+  border: 3px solid #2d5a27;
 }
 
 .game-info {
   text-align: center;
-  margin: 1rem 0;
-  padding: 1rem;
-  background: #e9ecef;
-  border-radius: 8px;
-  font-weight: bold;
+  margin-bottom: 1rem;
   font-size: 1.1rem;
+  color: #333;
+  min-height: 1.5rem;
 }
 
-.game-instructions {
-  background: #d1ecf1;
-  border: 1px solid #bee5eb;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
+.page-header {
+  text-align: center;
+  margin-bottom: 2rem;
 }
 
-.game-instructions h3 {
-  color: #0c5460;
+.page-header h1 {
+  color: #2d5a27;
+  font-size: 2.5rem;
   margin-bottom: 0.5rem;
-}
-
-.game-instructions ul {
-  margin: 0;
-  color: #0c5460;
-}
-
-.game-instructions li {
-  margin-bottom: 0.3rem;
 }
 
 /* Styles pour la légende des creets */
