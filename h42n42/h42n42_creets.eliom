@@ -1,4 +1,520 @@
-(* Module pour le jeu des Creets *)
+open Eliom_content.Html.F
+open Tyxml.Html
+
+let game_width = ref 1000.0
+let game_height = ref 700.0
+let base_speed = ref 50.0
+let base_creet_size = ref 40.0
+
+(* Types partagés uniquement *)
+[%%shared
+[@@@ocaml.warning "-32-22"] 
+
+type creet_health = 
+  | Healthy
+  | Infected
+  | Berserk
+  | Evil
+  [@@deriving json]
+
+type position = {
+  x: float;
+  y: float;
+} [@@deriving json]
+
+type velocity = {
+  vx: float;
+  vy: float;
+} [@@deriving json]
+
+type creet = {
+  id: int;
+  position: position;
+  velocity: velocity;
+  health: creet_health;
+  size: float; (* diamètre en pixels *)
+  is_grabbed: bool;
+  last_direction_change: float;
+  infection_time: float option;
+  transformation_checked: bool; (* Pour s'assurer qu'on ne vérifie la transformation qu'une fois *)
+} [@@deriving json]
+
+type game_state = {
+  creets: creet list;
+  game_running: bool;
+  start_time: float;
+  panic_level: float;
+} [@@deriving json]
+
+(* Constantes du jeu - uniquement les valeurs, pas les calculs *)
+let game_width_default = 1000.0
+let game_height_default = 700.0
+let river_height_default = 50.0
+let hospital_height_default = 50.0
+let base_creet_size_default = 40.0
+let base_speed_default = 50.0
+]
+
+(* Interface utilisateur du jeu - Création du formulaire avec TyXML *)
+let%shared creets_interface () =
+  div ~a:[a_class ["creets-game"]] [
+    h2 [txt "Jeu des Creets"];
+
+    div ~a:[a_class ["game-controls"]] [
+      label [txt "Vitesse des Creets :"];
+      (* Formulaire avec TyXML pour Vitesse des Creets *)
+      let speed_ref = !base_speed in
+      input ~a:[
+        a_class ["form-control"];
+        a_input_type `Range;
+        a_input_min (`Number 0);
+        a_input_max (`Number 100);
+        a_value (!base_speed); (* Valeur initiale en string *)
+        a_id "creet-speed"
+      ] ();
+
+      label [txt "Taille des Creets :"];
+      let size_ref = Eliom_reference.make_ref !base_creet_size in
+      input ~a:[
+        a_class ["form-control"];
+        a_input_type `Range;
+        a_input_min (`Number 10);
+        a_input_max (`Number 100);
+        a_value (string_of_float !base_creet_size);
+        a_id "creet-size"
+      ] ();
+
+      label [txt "Taille de la Carte :"];
+      let map_ref = Eliom_reference.make_ref !game_width in
+      input ~a:[
+        a_class ["form-control"];
+        a_input_type `Range;
+        a_input_min (`Number 500);
+        a_input_max (`Number 2000);
+        a_value (string_of_float !game_width);
+        a_id "map-size"
+      ] ();
+
+      (* Bouton pour appliquer les paramètres *)
+      button ~a:[a_id "apply-settings"; a_class ["btn"; "btn-primary"]] [txt "Appliquer"]
+    ];
+
+    div ~a:[a_class ["game-controls"]] [
+      button ~a:[a_id "start-button"; a_class ["btn"; "btn-primary"]] [txt "Démarrer le Jeu"]
+    ];
+
+    div ~a:[a_id "game-info"; a_class ["game-info"]] [];
+
+    div ~a:[a_class ["canvas-container"]] [
+      canvas ~a:[
+        a_id "game-canvas";
+        a_class ["game-canvas"];
+        a_width (int_of_float !game_width);  (* Convertir le float en int ici *)
+        a_height (int_of_float !game_height);  (* Convertir le float en int ici *)
+        a_style "background: linear-gradient(to bottom,rgb(255, 193, 7) 0%, rgb(255, 193, 7) 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, rgb(76, 175, 80) 90% , rgb(76, 175, 80) 100%); cursor: pointer;"
+      ] ()
+    ]
+  ]
+
+(* Fonction pour appliquer les paramètres du formulaire *)
+let%client apply_game_settings () =
+  (* Récupérer les valeurs des inputs HTML *)
+  let speed_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-speed") in
+  let size_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-size") in
+  let map_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "map-size") in
+
+  let speed = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input speed_input)##.value in
+  let size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input size_input)##.value in
+  let map_size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input map_input)##.value in
+
+  (* Mise à jour des variables globales *)
+  game_width := map_size;
+  game_height := map_size;
+  base_speed := speed;
+  base_creet_size := size;
+
+  (* Mise à jour du canvas *)
+  let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
+  match Js_of_ocaml.Js.Opt.to_option canvas_opt with
+  | Some canvas_elem -> 
+      let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
+      update_canvas_dimensions canvas; (* Mettre à jour la taille du canvas *)
+  | None -> Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Canvas non trouvé");
+
+  (* Affichage des changements dans la console ou sur l'interface utilisateur *)
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string (Printf.sprintf "Vitesse: %.2f, Taille: %.2f, Map: %.2f"
+    speed size map_size))
+
+(* Fonction pour démarrer le jeu *)
+let%client start_game () =
+  Random.self_init ();
+  let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
+  let initial_creets = List.init 15 (fun _ -> create_creet current_time) in
+  game_state := {
+    creets = initial_creets;
+    game_running = true;
+    start_time = current_time;
+    panic_level = 1.0;
+  };
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+    (Printf.sprintf "🎮 Jeu démarré avec %d creets" (List.length initial_creets)))
+
+(* 
+(* Fonction pour appliquer les paramètres du formulaire *)
+let%client apply_game_settings () =
+  let speed_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-speed") in
+  let size_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-size") in
+  let map_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "map-size") in
+
+  let speed = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input speed_input)##.value in
+  let size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input size_input)##.value in
+  let map_size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input map_input)##.value in
+
+  (* Mise à jour des variables globales *)
+  game_width := map_size;
+  game_height := map_size;
+  base_speed := speed;
+  base_creet_size := size;
+
+  (* Mise à jour du canvas *)
+  let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
+  match Js_of_ocaml.Js.Opt.to_option canvas_opt with
+  | Some canvas_elem ->
+      let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
+      update_canvas_dimensions canvas; (* Mettre à jour la taille du canvas *)
+  | None -> Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Canvas non trouvé");
+
+  (* Affichage des changements dans la console ou sur l'interface utilisateur *)
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string (Printf.sprintf "Vitesse: %.2f, Taille: %.2f, Map: %.2f"
+    speed size map_size))
+
+(* Variables de jeu côté client *)
+let%client game_state = ref {
+  creets = [];
+  game_running = false;
+  start_time = 0.0;
+  panic_level = 1.0;
+}
+let%client next_id = ref 1
+
+(* État pour le glisser-déposer *)
+let%client dragging_creet = ref None
+let%client mouse_offset = ref { x = 0.0; y = 0.0 }
+
+(* Fonctions utilitaires côté client *)
+let%client random_float min_val max_val = 
+  min_val +. (Random.float (max_val -. min_val))
+
+let%client distance p1 p2 = 
+  sqrt ((p1.x -. p2.x) ** 2.0 +. (p1.y -. p2.y) ** 2.0)
+
+let%client normalize_velocity v speed =
+  let length = sqrt (v.vx ** 2.0 +. v.vy ** 2.0) in
+  if length = 0.0 then v
+  else { vx = v.vx *. speed /. length; vy = v.vy *. speed /. length }
+
+(* Fonctions pour les interactions souris *)
+let%client get_mouse_pos canvas event =
+  let rect = canvas##getBoundingClientRect () in
+  let x = (Js_of_ocaml.Js.to_float event##.clientX) -. (Js_of_ocaml.Js.to_float rect##.left) in
+  let y = (Js_of_ocaml.Js.to_float event##.clientY) -. (Js_of_ocaml.Js.to_float rect##.top) in
+  { x; y }
+
+let%client find_creet_at_position pos creets =
+  List.find_opt (fun creet ->
+    let dist = distance pos creet.position in
+    dist <= creet.size /. 2.0
+  ) creets
+
+let%client is_in_hospital pos =
+  pos.y >= (game_height -. hospital_height)
+
+let%client heal_creet creet =
+  if creet.health <> Healthy then
+    { creet with 
+      health = Healthy; 
+      size = base_creet_size; (* Remettre à la taille normale *)
+      infection_time = None;
+      transformation_checked = false; (* Réinitialiser pour une éventuelle réinfection *)
+    }
+  else creet
+
+let%client update_creet_position_with_mouse creet mouse_pos =
+  { creet with 
+    position = { 
+      x = mouse_pos.x -. !mouse_offset.x; 
+      y = mouse_pos.y -. !mouse_offset.y 
+    };
+    velocity = { vx = 0.0; vy = 0.0 }; (* Arrêter le mouvement pendant le drag *)
+  }
+
+(* Création d'un nouveau creet côté client *)
+let%client create_creet current_time =
+  let id = !next_id in
+  incr next_id;
+  let new_creet = {
+    id;
+    position = { 
+      x = random_float 50.0 (game_width -. 50.0);
+      y = random_float (river_height +. 50.0) (game_height -. hospital_height -. 50.0);
+    };
+    velocity = {
+      vx = random_float (-.base_speed) base_speed;
+      vy = random_float (-.base_speed) base_speed;
+    };
+    health = Healthy;
+    size = base_creet_size;
+    is_grabbed = false;
+    last_direction_change = current_time;
+    infection_time = None;
+    transformation_checked = false;
+  } in
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+    (Printf.sprintf "🎯 Creet créé: ID=%d pos=(%.1f,%.1f) size=%.1f" 
+      new_creet.id new_creet.position.x new_creet.position.y new_creet.size));
+  new_creet
+
+(* Logique de mouvement et collision côté client *)
+let%client update_creet_position creet dt current_time =
+  if creet.is_grabbed then creet
+  else
+    let speed_modifier = match creet.health with
+      | Healthy -> 1.0
+      | Infected -> 0.85 (* 15% plus lent *)
+      | Berserk -> 1.0
+      | Evil -> 1.3 (* plus rapide pour chasser *)
+    in
+
+    (* Changement de direction aléatoire ou poursuite pour les Evil *)
+    let velocity = 
+      if creet.health = Evil then
+        (* Les creets Evil chassent les creets sains *)
+        let healthy_creets = List.filter (fun c -> c.health = Healthy && not c.is_grabbed) !game_state.creets in
+        match healthy_creets with
+        | [] -> creet.velocity (* Pas de cible, garde la direction actuelle *)
+        | targets ->
+            (* Trouve le creet sain le plus proche *)
+            let closest_target = List.fold_left (fun acc target ->
+              let dist_acc = distance creet.position acc.position in
+              let dist_target = distance creet.position target.position in
+              if dist_target < dist_acc then target else acc
+            ) (List.hd targets) (List.tl targets) in
+            (* Direction vers la cible *)
+            let dx = closest_target.position.x -. creet.position.x in
+            let dy = closest_target.position.y -. creet.position.y in
+            let norm = sqrt (dx *. dx +. dy *. dy) in
+            if norm > 0.0 then
+              { vx = dx /. norm *. base_speed; vy = dy /. norm *. base_speed }
+            else creet.velocity
+      else if current_time -. creet.last_direction_change > 2.0 && Js_of_ocaml.Js.random () < 0.1 then
+        { vx = random_float (-.base_speed) base_speed;
+          vy = random_float (-.base_speed) base_speed }
+      else creet.velocity
+    in
+
+    (* Applique la vitesse et la taille mise à jour *)
+    let velocity = normalize_velocity velocity (base_speed *. speed_modifier *. !game_state.panic_level) in
+
+    (* Nouvelle position du creet *)
+    let new_x = creet.position.x +. velocity.vx *. dt in
+    let new_y = creet.position.y +. velocity.vy *. dt in
+
+    (* Gestion des collisions avec les bords de la carte *)
+    let (final_x, final_vx) = 
+      if new_x <= creet.size /. 2.0 then (creet.size /. 2.0, abs_float velocity.vx)
+      else if new_x >= game_width -. creet.size /. 2.0 then (game_width -. creet.size /. 2.0, -.abs_float velocity.vx)
+      else (new_x, velocity.vx)
+    in
+
+    let (final_y, final_vy, new_health) = 
+      if new_y <= river_height +. creet.size /. 2.0 then 
+        (* Collision avec la rivière - infection automatique pour les creets sains *)
+        let infected = if creet.health = Healthy then Infected else creet.health in
+        (river_height +. creet.size /. 2.0, abs_float velocity.vy, infected)
+      else if new_y >= game_height -. hospital_height -. creet.size /. 2.0 then 
+        (* Collision avec l'hôpital - PAS de guérison automatique *)
+        (game_height -. hospital_height -. creet.size /. 2.0, -.abs_float velocity.vy, creet.health)
+      else (new_y, velocity.vy, creet.health)
+    in
+
+    { creet with
+      position = { x = final_x; y = final_y };
+      velocity = { vx = final_vx; vy = final_vy };
+      health = new_health;
+      last_direction_change = if velocity <> creet.velocity then current_time else creet.last_direction_change;
+      infection_time = if new_health = Infected && creet.health = Healthy then Some current_time else creet.infection_time;
+      transformation_checked = if new_health = Infected && creet.health = Healthy then false else creet.transformation_checked;
+    }
+
+(* Mise à jour de l'état du jeu côté client *)
+let%client update_game_state dt =
+  if !game_state.game_running then
+    let current_time = Unix.time () in
+    let new_panic_level = 1.0 +. (current_time -. !game_state.start_time) *. 0.01 in
+    
+    let updated_creets = 
+      let step1 = update_creets_positions !game_state.creets dt current_time in
+      let step2 = check_infections step1 current_time in
+      let step3 = check_creet_contacts step2 current_time in
+      reproduce_creets step3 current_time
+    in
+    
+    let healthy_count = count_healthy_creets updated_creets in
+    let game_over = healthy_count = 0 in
+    
+    game_state := {
+      creets = updated_creets;
+      game_running = not game_over;
+      start_time = !game_state.start_time;
+      panic_level = new_panic_level;
+    }
+
+(* Logique côté client - version refactorisée *)
+let%client init_game_client () =
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🎮 Initialisation du jeu côté client");
+  
+  (* Récupérer les éléments DOM *)
+  let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
+  let start_btn_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "start-button") in
+  let info_elem_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-info") in
+  
+  match (Js_of_ocaml.Js.Opt.to_option canvas_opt, 
+         Js_of_ocaml.Js.Opt.to_option start_btn_opt, 
+         Js_of_ocaml.Js.Opt.to_option info_elem_opt) with
+  | (Some canvas_elem, Some start_btn_elem, Some info_elem) ->
+      let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
+      let start_btn = Js_of_ocaml.Js.Unsafe.coerce start_btn_elem in
+      let ctx = canvas##getContext (Js_of_ocaml.Dom_html._2d_) in
+      
+      (* Gestionnaire de clic sur le bouton *)
+      start_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
+        Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🚀 Bouton cliqué - Démarrage du jeu...");
+        start_game ();
+        info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Jeu démarré...";
+        Lwt.async (fun () -> start_game_loop canvas ctx info_elem);
+        Js_of_ocaml.Js._false
+      );
+      
+      (* Gestionnaires d'événements de souris pour le drag & drop *)
+      canvas##.onmousedown := Js_of_ocaml.Dom_html.handler (fun event ->
+        let mouse_pos = get_mouse_pos canvas event in
+        (match find_creet_at_position mouse_pos !game_state.creets with
+        | Some creet ->
+            dragging_creet := Some creet.id;
+            mouse_offset := { 
+              x = mouse_pos.x -. creet.position.x; 
+              y = mouse_pos.y -. creet.position.y 
+            };
+            (* Marquer le creet comme saisi *)
+            let updated_creets = List.map (fun c ->
+              if c.id = creet.id then { c with is_grabbed = true }
+              else c
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+              (Printf.sprintf "🖱️ Creet %d saisi" creet.id));
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      canvas##.onmousemove := Js_of_ocaml.Dom_html.handler (fun event ->
+        (match !dragging_creet with
+        | Some creet_id ->
+            let mouse_pos = get_mouse_pos canvas event in
+            let updated_creets = List.map (fun creet ->
+              if creet.id = creet_id then
+                update_creet_position_with_mouse creet mouse_pos
+              else creet
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      canvas##.onmouseup := Js_of_ocaml.Dom_html.handler (fun event ->
+        (match !dragging_creet with
+        | Some creet_id ->
+            let mouse_pos = get_mouse_pos canvas event in
+            (* Libérer le creet et lui donner une nouvelle vitesse aléatoire *)
+            let updated_creets = List.map (fun creet ->
+              if creet.id = creet_id then
+                let released_creet = { creet with 
+                  is_grabbed = false;
+                  velocity = {
+                    vx = random_float (-.base_speed) base_speed;
+                    vy = random_float (-.base_speed) base_speed;
+                  }
+                } in
+                (* Soigner le creet s'il est déposé dans l'hôpital *)
+                if is_in_hospital mouse_pos && released_creet.health <> Healthy then (
+                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
+                  heal_creet released_creet
+                ) else released_creet
+              else creet
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+              (Printf.sprintf "🖱️ Creet %d libéré" creet_id));
+            dragging_creet := None;
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      (* Gérer le cas où la souris sort du canvas *)
+      canvas##.onmouseleave := Js_of_ocaml.Dom_html.handler (fun _ ->
+        (match !dragging_creet with
+        | Some creet_id ->
+            let updated_creets = List.map (fun creet ->
+              if creet.id = creet_id then
+                let released_creet = { creet with 
+                  is_grabbed = false;
+                  velocity = {
+                    vx = random_float (-.base_speed) base_speed;
+                    vy = random_float (-.base_speed) base_speed;
+                  }
+                } in
+                (* Soigner le creet s'il est dans l'hôpital *)
+                if is_in_hospital creet.position && released_creet.health <> Healthy then (
+                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
+                  heal_creet released_creet
+                ) else released_creet
+              else creet
+            ) !game_state.creets in
+            game_state := { !game_state with creets = updated_creets };
+            dragging_creet := None;
+        | None -> ());
+        Js_of_ocaml.Js._false
+      );
+      
+      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "✅ Jeu initialisé avec succès")
+  | _ ->
+      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Éléments DOM non trouvés")
+
+let%client () =
+  (* Ajouter un gestionnaire d'événements pour appliquer les nouveaux paramètres *)
+  let apply_btn = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "apply-settings") in
+  apply_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
+    apply_game_settings ();
+    Js_of_ocaml.Js._true
+  )
+
+(* Démarrage du jeu côté client *)
+let%client start_game () =
+  Random.self_init ();
+  let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
+  let initial_creets = List.init 15 (fun _ -> create_creet current_time) in
+  game_state := {
+    creets = initial_creets;
+    game_running = true;
+    start_time = current_time;
+    panic_level = 1.0;
+  };
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
+    (Printf.sprintf "🎮 Jeu démarré avec %d creets" (List.length initial_creets)))
+ *)
+    (* Module pour le jeu des Creets
 
 (* Types partagés uniquement *)
 [%%shared
@@ -49,6 +565,66 @@ let hospital_height = 50.0
 let base_creet_size = 40.0
 let base_speed = 50.0
 ]
+
+let%shared creets_interface () =
+  div ~a:[a_class ["creets-game"]]
+    [ h2 [txt "Jeu des Creets"]
+    ; div ~a:[a_class ["game-controls"]]
+        [ label [txt "Vitesse des Creets :"]
+        ; input ~a:[a_type "range"; a_min "0"; a_max "100"; a_value "50"; a_id "creet-speed"] []
+        ; br []
+        
+        ; label [txt "Taille des Creets :"]
+        ; input ~a:[a_type "range"; a_min "10"; a_max "100"; a_value "40"; a_id "creet-size"] []
+        ; br []
+
+        ; label [txt "Taille de la Carte :"]
+        ; input ~a:[a_type "range"; a_min "500"; a_max "2000"; a_value "1000"; a_id "map-size"] []
+        ; br []
+
+        ; button ~a:[a_id "apply-settings"; a_class ["btn"; "btn-primary"]] [txt "Appliquer"]
+        ]
+    ; div ~a:[a_class ["game-controls"]]
+        [ button ~a:[a_id "start-button"; a_class ["btn"; "btn-primary"]] [txt "Démarrer le Jeu"]
+        ]
+    ; div ~a:[a_id "game-info"; a_class ["game-info"]] []
+    ; div ~a:[a_class ["canvas-container"]]
+        [ canvas ~a:[
+            a_id "game-canvas";
+            a_class ["game-canvas"];
+            a_width (int_of_float game_width);
+            a_height (int_of_float game_height);
+            a_style "background: linear-gradient(to bottom,rgb(255, 193, 7) 0%, rgb(255, 193, 7) 10%,rgb(255, 255, 255) 10%,rgb(255, 255, 255) 90%, rgb(76, 175, 80) 90% , rgb(76, 175, 80) 100%); cursor: pointer;"
+          ] []
+        ]
+    ]
+
+let%client apply_game_settings () =
+  let speed_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-speed") in
+  let size_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-size") in
+  let map_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "map-size") in
+
+  let speed = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input speed_input)##.value in
+  let size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input size_input)##.value in
+  let map_size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input map_input)##.value in
+
+  (* Mise à jour des variables globales *)
+  game_width := map_size;
+  game_height := map_size;
+  base_speed := speed;
+  base_creet_size := size;
+
+  (* Affichage des changements dans la console ou sur l'interface utilisateur *)
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string (Printf.sprintf "Vitesse: %.2f, Taille: %.2f, Map: %.2f"
+    speed size map_size))
+
+let%client () =
+  (* Ajouter un gestionnaire d'événements pour appliquer les nouveaux paramètres *)
+  let apply_btn = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "apply-settings") in
+  apply_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
+    apply_game_settings ();
+    Js_of_ocaml.Js._true
+  )
 
 (* État du jeu côté client *)
 let%client game_state = ref {
@@ -276,15 +852,60 @@ let%client reproduce_creets creets current_time =
     (create_creet current_time) :: creets
   else creets
 
+let%client random_behavior current_time creet =
+  if current_time -. creet.last_direction_change > 2.0 && Js_of_ocaml.Js.random () < 0.1 then
+    { vx = random_float (-.base_speed) base_speed;
+      vy = random_float (-.base_speed) base_speed }
+  else
+    creet.velocity
+
 (* Fonctions utilitaires pour éviter les fonctions anonymes côté client *)
-let%client update_creets_positions creets dt current_time =
-  let rec update_list acc = function
-    | [] -> List.rev acc
-    | creet :: rest -> 
-        let updated_creet = update_creet_position creet dt current_time in
-        update_list (updated_creet :: acc) rest
-  in
-  update_list [] creets
+let%client update_creet_position creet dt current_time =
+  if creet.is_grabbed then creet
+  else
+    let speed_modifier = match creet.health with
+      | Healthy -> 1.0
+      | Infected -> 0.85 (* 15% plus lent *)
+      | Berserk -> 1.0
+      | Evil -> 1.3 (* plus rapide pour chasser *)
+    in
+
+    (* Utilisation de la logique côté client pour Random *)
+    let velocity = random_behavior current_time creet in
+
+    (* Applique la vitesse et la taille mise à jour *)
+    let velocity = normalize_velocity velocity (base_speed *. speed_modifier *. !game_state.panic_level) in
+
+    (* Nouvelle position du creet *)
+    let new_x = creet.position.x +. velocity.vx *. dt in
+    let new_y = creet.position.y +. velocity.vy *. dt in
+
+    (* Gestion des collisions comme avant *)
+    let (final_x, final_vx) = 
+      if new_x <= creet.size /. 2.0 then (creet.size /. 2.0, abs_float velocity.vx)
+      else if new_x >= !game_width -. creet.size /. 2.0 then (!game_width -. creet.size /. 2.0, -.abs_float velocity.vx)
+      else (new_x, velocity.vx)
+    in
+    
+    let (final_y, final_vy, new_health) = 
+      if new_y <= river_height +. creet.size /. 2.0 then
+        (* Collision avec la rivière - infection automatique pour les creets sains *)
+        let infected = if creet.health = Healthy then Infected else creet.health in
+        (river_height +. creet.size /. 2.0, abs_float velocity.vy, infected)
+      else if new_y >= !game_height -. hospital_height -. creet.size /. 2.0 then
+        (* Collision avec l'hôpital - PAS de guérison automatique *)
+        (game_height -. hospital_height -. creet.size /. 2.0, -.abs_float velocity.vy, creet.health)
+      else (new_y, velocity.vy, creet.health)
+    in
+    
+    { creet with
+      position = { x = final_x; y = final_y };
+      velocity = { vx = final_vx; vy = final_vy };
+      health = new_health;
+      last_direction_change = if velocity <> creet.velocity then current_time else creet.last_direction_change;
+      infection_time = if new_health = Infected && creet.health = Healthy then Some current_time else creet.infection_time;
+      transformation_checked = if new_health = Infected && creet.health = Healthy then false else creet.transformation_checked;
+    } 
 
 (* Mise à jour des creets pendant le drag *)
 let%client update_dragged_creets creets mouse_pos =
@@ -317,6 +938,93 @@ let%client update_game_state dt =
       panic_level = new_panic_level;
     }
 
+let%client update_canvas_dimensions canvas =
+  (* Mise à jour de la taille du canvas *)
+  canvas##.width := int_of_float !game_width;
+  canvas##.height := int_of_float !game_height;
+
+
+let%client update_creet_position creet dt current_time =
+  if creet.is_grabbed then creet
+  else
+    let speed_modifier = match creet.health with
+      | Healthy -> 1.0
+      | Infected -> 0.85 (* 15% plus lent *)
+      | Berserk -> 1.0
+      | Evil -> 1.3 (* plus rapide pour chasser *)
+    in
+    
+    let velocity = 
+      if creet.health = Evil then
+        (* Les creets Evil chassent les creets sains *)
+        (* ... [code pour la logique de chasse des creets] ... *)
+      else if current_time -. creet.last_direction_change > 2.0 && Random.float 1.0 < 0.1 then
+        { vx = random_float (-.base_speed) base_speed;
+          vy = random_float (-.base_speed) base_speed }
+      else creet.velocity
+    in
+
+    (* Applique la vitesse et la taille mise à jour *)
+    let velocity = normalize_velocity velocity (base_speed *. speed_modifier *. !game_state.panic_level) in
+    
+    (* Nouvelle position du creet *)
+    let new_x = creet.position.x +. velocity.vx *. dt in
+    let new_y = creet.position.y +. velocity.vy *. dt in
+    
+    (* Gestion des collisions avec les bords de la carte *)
+    let (final_x, final_vx) = 
+      if new_x <= creet.size /. 2.0 then (creet.size /. 2.0, abs_float velocity.vx)
+      else if new_x >= !game_width -. creet.size /. 2.0 then (!game_width -. creet.size /. 2.0, -.abs_float velocity.vx)
+      else (new_x, velocity.vx)
+    in
+    
+    let (final_y, final_vy, new_health) = 
+      if new_y <= river_height +. creet.size /. 2.0 then
+        (* Collision avec la rivière *)
+        let infected = if creet.health = Healthy then Infected else creet.health in
+        (river_height +. creet.size /. 2.0, abs_float velocity.vy, infected)
+      else if new_y >= !game_height -. hospital_height -. creet.size /. 2.0 then
+        (* Collision avec l'hôpital *)
+        (game_height -. hospital_height -. creet.size /. 2.0, -.abs_float velocity.vy, creet.health)
+      else (new_y, velocity.vy, creet.health)
+    in
+    { creet with
+      position = { x = final_x; y = final_y };
+      velocity = { vx = final_vx; vy = final_vy };
+      health = new_health;
+      last_direction_change = if velocity <> creet.velocity then current_time else creet.last_direction_change;
+      infection_time = if new_health = Infected && creet.health = Healthy then Some current_time else creet.infection_time;
+      transformation_checked = if new_health = Infected && creet.health = Healthy then false else creet.transformation_checked;
+    }
+    
+let%client apply_game_settings () =
+  (* Récupérer les valeurs du formulaire *)
+  let speed_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-speed") in
+  let size_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "creet-size") in
+  let map_input = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "map-size") in
+
+  let speed = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input speed_input)##.value in
+  let size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input size_input)##.value in
+  let map_size = Js_of_ocaml.Js.to_float (Js_of_ocaml.Dom_html.Coerce.to_input map_input)##.value in
+
+  (* Mise à jour des variables globales *)
+  game_width := map_size;
+  game_height := map_size;
+  base_speed := speed;
+  base_creet_size := size;
+
+  (* Mise à jour du canvas *)
+  let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
+  match Js_of_ocaml.Js.Opt.to_option canvas_opt with
+  | Some canvas_elem ->
+      let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
+      update_canvas_dimensions canvas; (* Mettre à jour la taille du canvas *)
+  | None -> Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Canvas non trouvé");
+
+  (* Affichage des changements dans la console ou sur l'interface utilisateur *)
+  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string (Printf.sprintf "Vitesse: %.2f, Taille: %.2f, Map: %.2f"
+    speed size map_size))
+
 (* Boucle de jeu principale côté client *)
 let%client start_game_loop canvas ctx info_elem =
   let rec loop last_time =
@@ -327,7 +1035,7 @@ let%client start_game_loop canvas ctx info_elem =
     if !game_state.game_running then (
       (* Mise à jour de l'état du jeu *)
       update_game_state dt;
-      
+
       (* Rendu *)
       ctx##clearRect 0.0 0.0 canvas##.width canvas##.height;
       
@@ -390,7 +1098,6 @@ let%client start_game_loop canvas ctx info_elem =
       Lwt.return_unit
     )
   in
-  loop 0.0
 
 (* Démarrage du jeu côté client *)
 let%client start_game () =
@@ -474,130 +1181,7 @@ let%shared creets_interface () =
         ]
     ]
 
-(* Logique côté client - version refactorisée *)
-let%client init_game_client () =
-  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🎮 Initialisation du jeu côté client");
-  
-  (* Récupérer les éléments DOM *)
-  let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
-  let start_btn_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "start-button") in
-  let info_elem_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-info") in
-  
-  match (Js_of_ocaml.Js.Opt.to_option canvas_opt, 
-         Js_of_ocaml.Js.Opt.to_option start_btn_opt, 
-         Js_of_ocaml.Js.Opt.to_option info_elem_opt) with
-  | (Some canvas_elem, Some start_btn_elem, Some info_elem) ->
-      let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
-      let start_btn = Js_of_ocaml.Js.Unsafe.coerce start_btn_elem in
-      let ctx = canvas##getContext (Js_of_ocaml.Dom_html._2d_) in
-      
-      (* Gestionnaire de clic sur le bouton *)
-      start_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
-        Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "🚀 Bouton cliqué - Démarrage du jeu...");
-        start_game ();
-        info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Jeu démarré...";
-        Lwt.async (fun () -> start_game_loop canvas ctx info_elem);
-        Js_of_ocaml.Js._false
-      );
-      
-      (* Gestionnaires d'événements de souris pour le drag & drop *)
-      canvas##.onmousedown := Js_of_ocaml.Dom_html.handler (fun event ->
-        let mouse_pos = get_mouse_pos canvas event in
-        (match find_creet_at_position mouse_pos !game_state.creets with
-        | Some creet ->
-            dragging_creet := Some creet.id;
-            mouse_offset := { 
-              x = mouse_pos.x -. creet.position.x; 
-              y = mouse_pos.y -. creet.position.y 
-            };
-            (* Marquer le creet comme saisi *)
-            let updated_creets = List.map (fun c ->
-              if c.id = creet.id then { c with is_grabbed = true }
-              else c
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-              (Printf.sprintf "🖱️ Creet %d saisi" creet.id));
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      canvas##.onmousemove := Js_of_ocaml.Dom_html.handler (fun event ->
-        (match !dragging_creet with
-        | Some creet_id ->
-            let mouse_pos = get_mouse_pos canvas event in
-            let updated_creets = List.map (fun creet ->
-              if creet.id = creet_id then
-                update_creet_position_with_mouse creet mouse_pos
-              else creet
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      canvas##.onmouseup := Js_of_ocaml.Dom_html.handler (fun event ->
-        (match !dragging_creet with
-        | Some creet_id ->
-            let mouse_pos = get_mouse_pos canvas event in
-            (* Libérer le creet et lui donner une nouvelle vitesse aléatoire *)
-            let updated_creets = List.map (fun creet ->
-              if creet.id = creet_id then
-                let released_creet = { creet with 
-                  is_grabbed = false;
-                  velocity = {
-                    vx = random_float (-.base_speed) base_speed;
-                    vy = random_float (-.base_speed) base_speed;
-                  }
-                } in
-                (* Soigner le creet s'il est déposé dans l'hôpital *)
-                if is_in_hospital mouse_pos && released_creet.health <> Healthy then (
-                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
-                  heal_creet released_creet
-                ) else released_creet
-              else creet
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-            Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-              (Printf.sprintf "🖱️ Creet %d libéré" creet_id));
-            dragging_creet := None;
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      (* Gérer le cas où la souris sort du canvas *)
-      canvas##.onmouseleave := Js_of_ocaml.Dom_html.handler (fun _ ->
-        (match !dragging_creet with
-        | Some creet_id ->
-            let updated_creets = List.map (fun creet ->
-              if creet.id = creet_id then
-                let released_creet = { creet with 
-                  is_grabbed = false;
-                  velocity = {
-                    vx = random_float (-.base_speed) base_speed;
-                    vy = random_float (-.base_speed) base_speed;
-                  }
-                } in
-                (* Soigner le creet s'il est dans l'hôpital *)
-                if is_in_hospital creet.position && released_creet.health <> Healthy then (
-                  Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string 
-                    (Printf.sprintf "🏥 Creet %d soigné à l'hôpital!" creet.id));
-                  heal_creet released_creet
-                ) else released_creet
-              else creet
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-            dragging_creet := None;
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "✅ Jeu initialisé avec succès")
-  | _ ->
-      Js_of_ocaml.Firebug.console##log (Js_of_ocaml.Js.string "❌ Éléments DOM non trouvés")
-
-(* Initialiser le jeu quand la page est chargée *)
+    (* Initialiser le jeu quand la page est chargée *)
 let%client () = 
   Js_of_ocaml.Dom_html.window##.onload := Js_of_ocaml.Dom_html.handler (fun _ ->
     let () = Js_of_ocaml_lwt.Lwt_js_events.async (fun () -> 
@@ -607,4 +1191,4 @@ let%client () =
       Lwt.return_unit
     ) in
     Js_of_ocaml.Js._true
-  )
+  ) *)

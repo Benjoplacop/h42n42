@@ -6,7 +6,7 @@
  (name h42n42)
  (modules
   (:standard \ H42n42_main))
- (libraries eliom.server ocsigen-start.server ocsipersist-pgsql)
+ (libraries eliom.server ocsigen-start.server ocsipersist-pgsql tyxml)
  (library_flags
   (:standard -linkall))
  (wrapped false)
@@ -37,7 +37,8 @@
   ocsigen-start.server
   ocsipersist-pgsql
   ocsigenserver.ext.staticmod
-  h42n42)
+  h42n42
+  tyxml)
  (modules H42n42_main)
  (preprocess
   (pps
@@ -135,7 +136,7 @@
     use-js-string
     --no-source-map))
   ; source maps are slow...
-  (libraries eliom.client ocsigen-start.client))
+  (libraries eliom.client ocsigen-start.client tyxml))
  (dynamic_include ../gen/dune.client))
 
 ; Main rule:
