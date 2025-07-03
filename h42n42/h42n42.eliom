@@ -39,18 +39,9 @@ let%server _ =
 
 [%%shared.start]
 
-module H42n42_base = H42n42_base
-module H42n42_config = H42n42_config
-module H42n42_container = H42n42_container
-module H42n42_creets = H42n42_creets
-module H42n42_drawer = H42n42_drawer
-module H42n42_handlers = H42n42_handlers
-module H42n42_icons = H42n42_icons
-module H42n42_page = H42n42_page
-module H42n42_services = H42n42_services
+(* The modules below are all the modules that needs to be explicitely
+   linked-in. *)
 
 [%%client.start]
 
-module H42n42_language = H42n42_language
-module H42n42_mobile = H42n42_mobile
-module H42n42_phone_connect = H42n42_phone_connect
+(* Client-side only modules *)

@@ -112,7 +112,7 @@
 (subdir
  client
  (executables
-  (names h42n42)
+  (names h42n42_main)
   (modes js byte)
   (preprocess
    (pps
