@@ -127,14 +127,30 @@ let%shared creets_interface () =
 
     Html.div ~a:[Html.a_id "game-info"; Html.a_class ["game-info"]] [];
 
-    (* Canvas de jeu *)
-    Html.canvas ~a:[
-      Html.a_id "game-canvas";
-      Html.a_class ["game-canvas"];
-      Html.a_width (int_of_float !game_width);
-      Html.a_height (int_of_float !game_height);
-      Html.a_style ("border: 2px solid #333; display: block; margin: 10px auto;")
-    ] [];
+    (* Zone de jeu avec DOM elements *)
+    Html.div ~a:[Html.a_class ["game-area"]; Html.a_id "game-area"; 
+                 Html.a_style ("position: relative; width: " ^ (string_of_float !game_width) ^ "px; height: " ^ (string_of_float !game_height) ^ "px; border: 2px solid #333; margin: 10px auto; overflow: hidden;")] [
+      (* Rivière toxique *)
+      Html.div ~a:[
+        Html.a_class ["river-zone"]; 
+        Html.a_id "river-zone";
+        Html.a_style ("position: absolute; top: 0px; left: 0px; width: 100%; height: " ^ (string_of_float river_height) ^ "px; background: linear-gradient(to bottom, #2196F3, #1976D2); color: white; text-align: center; line-height: " ^ (string_of_float river_height) ^ "px; font-weight: bold; z-index: 1;")
+      ] [Html.txt "🌊 RIVIÈRE TOXIQUE - DANGER !!!"];
+      
+      (* Zone de jeu principale *)
+      Html.div ~a:[
+        Html.a_class ["play-zone"]; 
+        Html.a_id "play-zone";
+        Html.a_style ("position: absolute; top: " ^ (string_of_float river_height) ^ "px; left: 0px; width: 100%; height: " ^ (string_of_float (!game_height -. river_height -. hospital_height)) ^ "px; background: linear-gradient(to bottom, #C8E6C9, #4CAF50); z-index: 2;")
+      ] [];
+      
+      (* Hôpital *)
+      Html.div ~a:[
+        Html.a_class ["hospital-zone"]; 
+        Html.a_id "hospital-zone";
+        Html.a_style ("position: absolute; bottom: 0px; left: 0px; width: 100%; height: " ^ (string_of_float hospital_height) ^ "px; background: linear-gradient(to bottom, #FFB6C1, #FF69B4); color: #2E7D32; text-align: center; line-height: " ^ (string_of_float hospital_height) ^ "px; font-weight: bold; z-index: 1;")
+      ] [Html.txt "🏥 HÔPITAL - Déposez les creets malades ici !!!"];
+    ];
   ]
 
 (* Types pour les Creets avec éléments DOM *)
@@ -158,10 +174,6 @@ let%client game_container = ref None
 (* Variables pour le drag & drop *)
 let%client dragging_creet = ref None
 let%client mouse_offset = ref { x = 0.0; y = 0.0 }
-
-(* Variables pour le rendu de l'herbe *)
-let%client grass_pattern = ref [||]
-let%client grass_generated = ref false
 
 (* Fonctions utilitaires côté client *)
 let%client random_float min_val max_val = 
@@ -334,13 +346,6 @@ let%client find_creet_at_position pos creets =
     let dist = distance pos creet.position in
     dist <= creet.size /. 2.0
   ) creets
-
-let%client update_creet_position_with_mouse creet mouse_pos =
-  let new_pos = { 
-    x = mouse_pos.x -. !mouse_offset.x; 
-    y = mouse_pos.y -. !mouse_offset.y 
-  } in
-  { creet with position = new_pos }
 
 (* Logique de mouvement et collision *)
 let%client update_creet_position creet dt current_time =
@@ -533,25 +538,22 @@ let%client setup_creet_mouse_events creet_dom =
     )
   )
 
-(* Création et ajout d'un nouveau Creet avec son thread *)
+(* Création et ajout d'un nouveau Creet avec son thread - version DOM pure *)
 let%client create_and_add_creet current_time =
   let creet = create_creet current_time in
   let element = create_creet_element creet in
   
-  (* Ajouter à la zone de jeu *)
-  (match !game_container with
-  | Some container -> Dom.appendChild container element
-  | None -> 
-      let play_zone_opt = Dom_html.document##getElementById (Js.string "play-zone") in
-      match Js.Opt.to_option play_zone_opt with
-      | Some play_zone -> 
-          Dom.appendChild play_zone element;
-          game_container := Some play_zone
-      | None -> ());
+  (* Ajouter à la zone de jeu principale *)
+  let play_zone_opt = Dom_html.document##getElementById (Js.string "play-zone") in
+  (match Js.Opt.to_option play_zone_opt with
+  | Some play_zone -> 
+      Dom.appendChild play_zone element;
+      game_container := Some play_zone
+  | None -> ());
   
   let creet_dom = { creet; element; thread_cancel = None } in
   
-  (* Configurer les événements souris *)
+  (* Configurer les événements souris avec Lwt_js_events *)
   setup_creet_mouse_events creet_dom;
   
   (* Démarrer le thread de contrôle *)
@@ -562,18 +564,20 @@ let%client create_and_add_creet current_time =
   
   creet
 
-(* Fonction pour démarrer le jeu *)
+(* Démarrage du jeu côté client - version DOM pure *)
 let%client start_game () =
   Random.self_init ();
   let current_time = Unix.time () in
   
-  (* Nettoyer les anciens creets *)
+  (* Nettoyer les anciens creets DOM *)
   List.iter (fun creet_dom ->
-    Dom.removeChild (Option.get !game_container) creet_dom.element
+    (match !game_container with
+    | Some container -> Dom.removeChild container creet_dom.element
+    | None -> ())
   ) !creet_doms;
   creet_doms := [];
   
-  (* Créer les nouveaux creets *)
+  (* Créer les nouveaux creets avec leurs éléments DOM *)
   let initial_creets = List.init 15 (fun _ -> create_and_add_creet current_time) in
   
   game_state := {
@@ -712,243 +716,54 @@ let%client calculate_final_score creets game_duration panic_level =
   
   (final_score, total_creets, healthy_count, infected_count, berserk_count, evil_count)
 
-(* Fonction pour dessiner le fond de la carte *)
-let%client draw_map_background ctx =
-  (* Effacer le canvas *)
-  ctx##clearRect 0.0 0.0 !game_width !game_height;
+(* Logique côté client - version DOM pure avec Lwt_js_events *)
+let%client init_game_client () =
   
-  (* Dessiner le fond de pelouse avec des nuances de vert *)
-  let grass_base_color = "#4CAF50" in
-  ctx##.fillStyle := Js_of_ocaml.Js.string grass_base_color;
-  ctx##fillRect 0.0 0.0 !game_width !game_height;
+  (* Récupérer les éléments DOM *)
+  let start_btn_opt = Dom_html.document##getElementById (Js.string "start-button") in
+  let apply_btn_opt = Dom_html.document##getElementById (Js.string "apply-settings") in
+  let info_elem_opt = Dom_html.document##getElementById (Js.string "game-info") in
+  let game_area_opt = Dom_html.document##getElementById (Js.string "game-area") in
   
-  (* Générer l'herbe une seule fois si pas déjà fait *)
-  if not !grass_generated then (
-    let grass_colors = [|"#388E3C"; "#66BB6A"; "#43A047"; "#2E7D32"; "#81C784"|] in
-    let grass_data = Array.make 150 (0.0, 0.0, 0.0, 0.0, "") in
-    for i = 0 to 149 do
-      let random_val1 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
-      let random_val2 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
-      let random_val3 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
-      let random_val4 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
-      let random_val5 = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Math.random") [||]) in
-      let x = random_val1 *. !game_width in
-      let y = random_val2 *. !game_height in
-      let width = 2.0 +. (random_val3 *. 4.0) in
-      let height = 8.0 +. (random_val4 *. 12.0) in
-      let color_index = int_of_float (random_val5 *. float_of_int (Array.length grass_colors)) in
-      let color = grass_colors.(color_index) in
-      grass_data.(i) <- (x, y, width, height, color);
-    done;
-    grass_pattern := grass_data;
-    grass_generated := true;
-  );
-  
-  (* Dessiner l'herbe avec les données précalculées *)
-  Array.iter (fun (x, y, width, height, color) ->
-    ctx##.fillStyle := Js_of_ocaml.Js.string color;
-    ctx##fillRect x y width height;
-  ) !grass_pattern;
-  
-  (* Dessiner les zones spéciales *)
-  (* Zone de l'hôpital - fond rosé opaque *)
-  ctx##.fillStyle := Js_of_ocaml.Js.string "#FFB6C1";
-  ctx##fillRect 0.0 (!game_height -. hospital_height) !game_width hospital_height;
-  
-  (* Texte de l'hôpital *)
-  ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
-  ctx##.font := Js_of_ocaml.Js.string "16px Arial";
-  ctx##.textAlign := Js_of_ocaml.Js.string "center";
-  ctx##fillText (Js_of_ocaml.Js.string "🏥 HÔPITAL - Déposez les creets malades ici !!!") (!game_width /. 2.0) (!game_height -. hospital_height /. 2.0);
-  
-  (* Zone de la rivière toxique - fond bleu opaque *)
-  ctx##.fillStyle := Js_of_ocaml.Js.string "#2196F3";
-  ctx##fillRect 0.0 0.0 !game_width river_height;
-  
-  (* Texte de la rivière *)
-  ctx##.fillStyle := Js_of_ocaml.Js.string "#8b00ff";
-  ctx##.font := Js_of_ocaml.Js.string "14px Arial";
-  ctx##.textAlign := Js_of_ocaml.Js.string "center";
-  ctx##fillText (Js_of_ocaml.Js.string "🌊 RIVIÈRE TOXIQUE - DANGER !!!") (!game_width /. 2.0) (river_height /. 2.0)
-
-(* Boucle de jeu principale côté client *)
-let%client start_game_loop _canvas ctx info_elem =
-  let rec loop last_time =
-    let%lwt () = Js_of_ocaml_lwt.Lwt_js.sleep 0.016 in (* ~60 FPS *)
-    let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
-    let dt = if last_time = 0.0 then 0.016 else current_time -. last_time in
-    
-    if !game_state.game_running then (
-      (* Mise à jour de l'état du jeu *)
-      update_game_state dt;
+  match (Js.Opt.to_option start_btn_opt,
+         Js.Opt.to_option apply_btn_opt,
+         Js.Opt.to_option info_elem_opt,
+         Js.Opt.to_option game_area_opt) with
+  | (Some start_btn_elem, Some apply_btn_elem, Some info_elem, Some game_area_elem) ->
+      let start_btn = Js.Unsafe.coerce start_btn_elem in
+      let apply_btn = Js.Unsafe.coerce apply_btn_elem in
       
-      (* Rendu *)
-      draw_map_background ctx;
-      
-      (* Dessiner les zones spéciales *)
-      (* Zone de l'hôpital - fond vert OPAQUE pour effacer l'ancien texte *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#C8E6C9";
-      ctx##fillRect 0.0 (!game_height -. hospital_height) !game_width hospital_height;
-      
-      (* Texte de l'hôpital - dynamique selon l'urgence *)
-      let infected_count = List.length (List.filter (fun c -> c.health <> Healthy) !game_state.creets) in
-      let hospital_text = 
-        if infected_count > 10 then
-          "🏥 HÔPITAL - URGENCE !!! Déposez les malades ici !!!"
-        else if infected_count > 5 then
-          "🏥 HÔPITAL - Déposez les creets malades ici !!!"
-        else
-          "🏥 HÔPITAL - Centre de soins"
-      in
-      
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#2E7D32";
-      ctx##.font := Js_of_ocaml.Js.string "bold 16px Arial";
-      ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string hospital_text) (!game_width /. 2.0) (!game_height -. hospital_height /. 2.0);
-      
-      (* Zone de la rivière toxique - fond jaune OPAQUE pour effacer l'ancien texte *)
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#8b00ff";
-      ctx##fillRect 0.0 0.0 !game_width river_height;
-      
-      (* Texte de la rivière - dynamique selon le niveau de panique *)
-      let river_text = 
-        if !game_state.panic_level > 1.5 then
-          "☠️ RIVIÈRE TOXIQUE - DANGER EXTRÊME !!!!"
-        else if !game_state.panic_level > 1.2 then
-          "☠️ RIVIÈRE TOXIQUE - DANGER !!!!!"
-        else
-          "☠️ RIVIÈRE TOXIQUE - DANGER !!!"
-      in
-      
-      ctx##.fillStyle := Js_of_ocaml.Js.string "#40E0D0";
-      ctx##.font := Js_of_ocaml.Js.string "bold 16px Arial";
-      ctx##.textAlign := Js_of_ocaml.Js.string "center";
-      ctx##fillText (Js_of_ocaml.Js.string river_text) (!game_width /. 2.0) (river_height /. 2.0);
-      
-      (* Dessiner les creets *)
-      List.iter (fun creet ->
-        let size = creet.size in
-        let x = creet.position.x in
-        let y = creet.position.y in
-        let r = size /. 2.0 in
-        
-        (* Couleur de base selon le type *)
-        let base_color = match creet.health with
-          | Healthy -> "#4da6ff"   (* Bleu *)
-          | Infected -> "#ff8c00"  (* Orange *)
-          | Berserk -> "#cc0000"   (* Rouge foncé *)
-          | Evil -> "#8b00ff"      (* Violet *)
-        in
-        
-        (* Dessiner le corps principal *)
-        ctx##.fillStyle := Js_of_ocaml.Js.string base_color;
-        ctx##.strokeStyle := Js_of_ocaml.Js.string "#333";
-        ctx##.lineWidth := 2.0;
-        ctx##beginPath ();
-        ctx##arc x y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-        ctx##fill;
-        ctx##stroke;
-        
-        (* Dessiner les yeux *)
-        ctx##.fillStyle := Js_of_ocaml.Js.string "#000";
-        let eye_size = r /. 10.0 in
-        let eye_offset_x = r /. 4.0 in
-        let eye_offset_y = r /. 8.0 in
-        
-        (* Œil gauche *)
-        ctx##beginPath ();
-        ctx##arc (x -. eye_offset_x) (y -. eye_offset_y) eye_size 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-        ctx##fill;
-        
-        (* Œil droit *)
-        ctx##beginPath ();
-        ctx##arc (x +. eye_offset_x) (y -. eye_offset_y) eye_size 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-        ctx##fill;
-        
-        (* Dessiner la bouche selon le type *)
-        ctx##.strokeStyle := Js_of_ocaml.Js.string "#000";
-        ctx##.lineWidth := 2.0;
-        ctx##.fillStyle := Js_of_ocaml.Js.string "transparent";
-        ctx##beginPath ();
-        
-        (match creet.health with
-        | Healthy -> 
-            (* Sourire *)
-            let mouth_y = y +. r /. 3.0 in
-            ctx##arc x mouth_y (r /. 3.0) 0.0 Js_of_ocaml.Js.math##._PI Js_of_ocaml.Js._false;
-            
-        | Infected -> 
-            (* Bouche triste *)
-            let mouth_y = y +. r /. 2.0 in
-            ctx##arc x mouth_y (r /. 3.0) Js_of_ocaml.Js.math##._PI (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-            
-        | Berserk -> 
-            (* Bouche en colère *)
-            let mouth_y = y +. r /. 2.0 in
-            ctx##arc x mouth_y (r /. 3.0) Js_of_ocaml.Js.math##._PI (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-            
-        | Evil -> 
-            (* Bouche malicieuse *)
-            let mouth_y = y +. r /. 2.0 in
-            ctx##arc x mouth_y (r /. 3.0) Js_of_ocaml.Js.math##._PI (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-        );
-        ctx##stroke;
-        
-        (* Ajouter des détails spécifiques selon le type *)
-        (match creet.health with
-        | Healthy -> () (* Rien de spécial *)
-        | Infected -> 
-            (* Taches d'infection *)
-            ctx##.fillStyle := Js_of_ocaml.Js.string "#ff0000";
-            ctx##beginPath ();
-            ctx##arc (x -. r /. 2.0) (y -. r /. 2.0) (r /. 15.0) 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-            ctx##fill;
-            ctx##beginPath ();
-            ctx##arc (x +. r /. 2.0) (y -. r /. 3.0) (r /. 15.0) 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-            ctx##fill;
-            
-        | Berserk -> 
-            (* Sourcils froncés *)
-            ctx##.strokeStyle := Js_of_ocaml.Js.string "#000";
-            ctx##.lineWidth := 2.0;
-            ctx##beginPath ();
-            ctx##moveTo (x -. r /. 2.0) (y -. r /. 2.0);
-            ctx##lineTo (x -. r /. 6.0) (y -. r /. 4.0);
-            ctx##lineTo (x -. r /. 2.0) (y -. r /. 8.0);
-            ctx##stroke;
-            ctx##beginPath ();
-            ctx##moveTo (x +. r /. 2.0) (y -. r /. 2.0);
-            ctx##lineTo (x +. r /. 6.0) (y -. r /. 4.0);
-            ctx##lineTo (x +. r /. 2.0) (y -. r /. 8.0);
-            ctx##stroke;
-            
-        | Evil -> 
-            (* Petites cornes *)
-            ctx##.strokeStyle := Js_of_ocaml.Js.string "#000";
-            ctx##.lineWidth := 2.0;
-            ctx##beginPath ();
-            ctx##moveTo (x -. r /. 6.0) (y -. r /. 3.0);
-            ctx##lineTo x (y -. r);
-            ctx##lineTo (x +. r /. 6.0) (y -. r /. 3.0);
-            ctx##stroke;
-            (* Point rouge au centre *)
-            ctx##.fillStyle := Js_of_ocaml.Js.string "#ff0000";
-            ctx##beginPath ();
-            ctx##arc x (y +. r /. 8.0) (r /. 20.0) 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-            ctx##fill;
-        );
-        
-        (* Ajouter un contour pour les creets saisis *)
-        if creet.is_grabbed then (
-          ctx##.strokeStyle := Js_of_ocaml.Js.string "#2E7D32";
-          ctx##.lineWidth := 3.0;
-          ctx##beginPath ();
-          ctx##arc x y r 0.0 (2.0 *. Js_of_ocaml.Js.math##._PI) Js_of_ocaml.Js._false;
-          ctx##stroke
+      (* Gestionnaire de clic sur le bouton Démarrer avec Lwt_js_events *)
+      Lwt.async (fun () ->
+        Lwt_js_events.clicks start_btn (fun _ _ ->
+          start_game ();
+          info_elem##.innerHTML := Js.string "✅ Jeu démarré...";
+          Lwt.async (fun () -> start_game_info_loop info_elem);
+          Lwt.return_unit
         )
-      ) !game_state.creets;
+      );
       
-      (* Mise à jour info *)
+      (* Gestionnaire de clic sur le bouton Appliquer avec Lwt_js_events *)
+      Lwt.async (fun () ->
+        Lwt_js_events.clicks apply_btn (fun _ _ ->
+          apply_game_settings ();
+          (* Mettre à jour la taille de la zone de jeu *)
+          game_area_elem##.style##.width := Js.string (Printf.sprintf "%.0fpx" !game_width);
+          game_area_elem##.style##.height := Js.string (Printf.sprintf "%.0fpx" !game_height);
+          info_elem##.innerHTML := Js.string "✅ Paramètres appliqués !";
+          Lwt.return_unit
+        )
+      );
+      
+      () (* Jeu initialisé avec succès *)
+  | _ ->
+      () (* Éléments DOM non trouvés *)
+
+(* Boucle d'information du jeu - version simplifiée *)
+let%client start_game_info_loop info_elem =
+  let rec loop () =
+    let%lwt () = Lwt_js.sleep 0.1 in (* Mise à jour toutes les 100ms *)
+    if !game_state.game_running then (
       let healthy_count = count_healthy_creets !game_state.creets in
       if healthy_count = 0 then (
         (* Calculer le score final et les statistiques *)
@@ -963,183 +778,22 @@ let%client start_game_loop _canvas ctx info_elem =
           total_creets infected_count berserk_count evil_count game_duration !game_state.panic_level
         in
         
-        (* Calculer le score final basé sur les performances *)
         let (final_score, _, _, _, _, _) = calculate_final_score !game_state.creets game_duration !game_state.panic_level in
         let final_score_message = Printf.sprintf "<br/>🏆 SCORE FINAL: %d points" final_score in
         
-        info_elem##.innerHTML := Js_of_ocaml.Js.string (score_message ^ final_score_message);
-        game_state := { !game_state with game_running = false }
+        info_elem##.innerHTML := Js.string (score_message ^ final_score_message);
+        game_state := { !game_state with game_running = false };
+        Lwt.return_unit
       ) else (
-        info_elem##.innerHTML := Js_of_ocaml.Js.string 
+        info_elem##.innerHTML := Js.string 
           (Printf.sprintf "🔵 Creets sains: %d | 🎯 Total: %d | ⚡ Panique: %.1fx" 
-            healthy_count (List.length !game_state.creets) !game_state.panic_level)
-      );
-      
-      loop current_time
-    ) else (
+            healthy_count (List.length !game_state.creets) !game_state.panic_level);
+        loop ()
+      )
+    ) else 
       Lwt.return_unit
-    )
   in
-  loop 0.0
-
-(* Démarrage du jeu côté client *)
-let%client start_game () =
-  Random.self_init ();
-  let current_time = Js_of_ocaml.Js.to_float (Js_of_ocaml.Js.Unsafe.fun_call (Js_of_ocaml.Js.Unsafe.js_expr "Date.now") [||]) /. 1000.0 in
-  let initial_creets = List.init 15 (fun _ -> create_creet current_time) in
-  game_state := {
-    creets = initial_creets;
-    game_running = true;
-    start_time = current_time;
-    panic_level = 1.0;
-  }
-(* Services Eliom simplifiés - optionnels pour synchronisation *)
-let%server ping_service =
-  Eliom_service.create
-    ~path:(Eliom_service.Path ["api"; "creets"; "ping"])
-    ~meth:(Eliom_service.Get Eliom_parameter.unit)
-    ()
-
-(* Références côté client *)
-let%client ping_service = ~%ping_service
-
-(* Handlers simplifiés *)
-let%server () =
-  Eliom_registration.String.register ~service:ping_service
-    (fun () () ->
-      Lwt.return ("text/plain", "pong")
-    )
-
-(* Logique côté client - version refactorisée *)
-let%client init_game_client () =
-  
-  (* Récupérer les éléments DOM *)
-  let canvas_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-canvas") in
-  let start_btn_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "start-button") in
-  let apply_btn_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "apply-settings") in
-  let info_elem_opt = Js_of_ocaml.Dom_html.document##getElementById (Js_of_ocaml.Js.string "game-info") in
-  
-  match (Js_of_ocaml.Js.Opt.to_option canvas_opt, 
-         Js_of_ocaml.Js.Opt.to_option start_btn_opt,
-         Js_of_ocaml.Js.Opt.to_option apply_btn_opt,
-         Js_of_ocaml.Js.Opt.to_option info_elem_opt) with
-  | (Some canvas_elem, Some start_btn_elem, Some apply_btn_elem, Some info_elem) ->
-      let canvas = Js_of_ocaml.Js.Unsafe.coerce canvas_elem in
-      let start_btn = Js_of_ocaml.Js.Unsafe.coerce start_btn_elem in
-      let apply_btn = Js_of_ocaml.Js.Unsafe.coerce apply_btn_elem in
-      let ctx = canvas##getContext (Js_of_ocaml.Dom_html._2d_) in
-      
-      (* Dessiner le fond initial de la carte *)
-      draw_map_background ctx;
-      
-      (* Gestionnaire de clic sur le bouton *)
-      start_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
-        start_game ();
-        info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Jeu démarré...";
-        Lwt.async (fun () -> start_game_loop canvas ctx info_elem);
-        Js_of_ocaml.Js._false
-      );
-      
-      (* Gestionnaire de clic sur le bouton Appliquer *)
-      apply_btn##.onclick := Js_of_ocaml.Dom_html.handler (fun _ ->
-        apply_game_settings ();
-        (* Mettre à jour la taille du canvas si nécessaire *)
-        canvas##.width := int_of_float !game_width;
-        canvas##.height := int_of_float !game_height;
-        (* Redessiner le fond avec les nouvelles dimensions *)
-        draw_map_background ctx;
-        info_elem##.innerHTML := Js_of_ocaml.Js.string "✅ Paramètres appliqués !";
-        Js_of_ocaml.Js._false
-      );
-      
-      (* Gestionnaires d'événements de souris pour le drag & drop *)
-      canvas##.onmousedown := Js_of_ocaml.Dom_html.handler (fun event ->
-        let mouse_pos = get_mouse_pos canvas event in
-        (match find_creet_at_position mouse_pos !game_state.creets with
-        | Some creet ->
-            dragging_creet := Some creet.id;
-            mouse_offset := { 
-              x = mouse_pos.x -. creet.position.x; 
-              y = mouse_pos.y -. creet.position.y 
-            };
-            (* Marquer le creet comme saisi *)
-            let updated_creets = List.map (fun c ->
-              if c.id = creet.id then { c with is_grabbed = true }
-              else c
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      canvas##.onmousemove := Js_of_ocaml.Dom_html.handler (fun event ->
-        (match !dragging_creet with
-        | Some creet_id ->
-            let mouse_pos = get_mouse_pos canvas event in
-            let updated_creets = List.map (fun creet ->
-              if creet.id = creet_id then
-                update_creet_position_with_mouse creet mouse_pos
-              else creet
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      canvas##.onmouseup := Js_of_ocaml.Dom_html.handler (fun event ->
-        (match !dragging_creet with
-        | Some creet_id ->
-            let mouse_pos = get_mouse_pos canvas event in
-            (* Libérer le creet et lui donner une nouvelle vitesse aléatoire *)
-            let updated_creets = List.map (fun creet ->
-              if creet.id = creet_id then
-                let released_creet = { creet with 
-                  is_grabbed = false;
-                  velocity = {
-                    vx = random_float (-.(!base_speed)) (!base_speed);
-                    vy = random_float (-.(!base_speed)) (!base_speed);
-                  }
-                } in
-                (* Soigner le creet s'il est déposé dans l'hôpital *)
-                if is_in_hospital mouse_pos && released_creet.health <> Healthy then
-                  heal_creet released_creet
-                else released_creet
-              else creet
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-            dragging_creet := None;
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      (* Gérer le cas où la souris sort du canvas *)
-      canvas##.onmouseleave := Js_of_ocaml.Dom_html.handler (fun _ ->
-        (match !dragging_creet with
-        | Some creet_id ->
-            let updated_creets = List.map (fun creet ->
-              if creet.id = creet_id then
-                let released_creet = { creet with 
-                  is_grabbed = false;
-                  velocity = {
-                    vx = random_float (-.(!base_speed)) (!base_speed);
-                    vy = random_float (-.(!base_speed)) (!base_speed);
-                  }
-                } in
-                (* Soigner le creet s'il est dans l'hôpital *)
-                if is_in_hospital creet.position && released_creet.health <> Healthy then
-                  heal_creet released_creet
-                else released_creet
-              else creet
-            ) !game_state.creets in
-            game_state := { !game_state with creets = updated_creets };
-            dragging_creet := None;
-        | None -> ());
-        Js_of_ocaml.Js._false
-      );
-      
-      () (* Jeu initialisé avec succès *)
-  | _ ->
-      () (* Éléments DOM non trouvés *)
+  loop ()
 
 (* Initialiser le jeu quand la page est chargée *)
 let%client () = 
